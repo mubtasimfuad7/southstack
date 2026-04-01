@@ -142,7 +142,7 @@ export class RuntimeService {
     })
     
     let stdout = ''
-    let stderr = ''
+    const stderr = ''
 
     // Collect stdout
     process.output.pipeTo(new WritableStream({

@@ -55,7 +55,6 @@ export function TerminalPanel() {
   const fitAddonRef = useRef<InstanceType<typeof import('@xterm/addon-fit').FitAddon> | null>(null)
   const { isOpen, setOpen } = useTerminalStore()
   const [initialized, setInitialized] = useState(false)
-  const [cmdBuffer, setCmdBuffer] = useState('')
 
   useEffect(() => {
     if (!isOpen) return

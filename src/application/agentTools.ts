@@ -5,6 +5,7 @@
 
 import type { AgentTool } from '@/core/interfaces/IAgentService'
 import { fileSystemService } from '@/core/services/FileSystemService'
+import type { FileNode } from '@/infrastructure/fs/types'
 
 export function buildAgentTools(): AgentTool[] {
   return [
@@ -90,7 +91,7 @@ export function buildAgentTools(): AgentTool[] {
         const allFiles = await fileSystemService.getTree()
         const results: { path: string; match: string }[] = []
         
-        const search = async (node: any) => {
+        const search = async (node: FileNode) => {
           if (node.type === 'file') {
             const content = await fileSystemService.readFile(node.path)
             if (content.toLowerCase().includes(query.toLowerCase())) {

@@ -54,7 +54,7 @@ export class AgentService implements IAgentService {
     this.history.push({ role: 'user', content: `${treeContext}\n\n[User Request]: ${userPrompt}` })
 
     try {
-      await this._runLoop(userPrompt)
+      await this._runLoop()
     } catch (err) {
       this._setStatus('error')
       this._emit('assistant', `Error: ${err instanceof Error ? err.message : String(err)}`)
@@ -108,7 +108,7 @@ export class AgentService implements IAgentService {
   // Core loop: PLAN → EXECUTE → REFLECT
   // ──────────────────────────────────────────────────────────
 
-  private async _runLoop(userPrompt: string): Promise<void> {
+  private async _runLoop(): Promise<void> {
     const MAX_ITERATIONS = 20
     let iterations = 0
     let lastResult: unknown = null
@@ -135,7 +135,7 @@ export class AgentService implements IAgentService {
       let agentResponse: AgentResponse
       try {
         agentResponse = this._parseResponse(rawResponse)
-      } catch (err) {
+      } catch {
         // If we fail to parse, but we have text, assume it's a "done" conversational response
         if (rawResponse.trim().length > 0) {
           agentResponse = {

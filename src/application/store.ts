@@ -145,7 +145,7 @@ interface AgentState {
   setAgentPanelOpen: (v: boolean) => void
 }
 
-export const useAgentStore = create<AgentState>((set, get) => ({
+export const useAgentStore = create<AgentState>((set) => ({
   status: 'idle',
   plan: [],
   messages: [],

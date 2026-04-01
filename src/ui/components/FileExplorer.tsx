@@ -2,17 +2,16 @@
 // UI LAYER: FileExplorer — left sidebar file tree
 // ============================================================
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   ChevronRight, ChevronDown, FolderOpen, Folder,
-  FilePlus, FolderPlus, Trash2, Edit3, FolderSearch, RefreshCw
+  FilePlus, Trash2, Edit3, FolderSearch, RefreshCw
 } from 'lucide-react'
 import type { FileNode } from '@/infrastructure/fs/types'
 import { useFSStore, useEditorStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'
 import { runtimeService } from '@/core/services/RuntimeService'
-import { getLanguageFromPath } from '@/core/utils/language'
 
 const FILE_ICON_MAP: Record<string, string> = {
   ts: '🔷', tsx: '🔷', js: '🟡', jsx: '🟡', py: '🐍',

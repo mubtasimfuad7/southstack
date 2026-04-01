@@ -5,8 +5,8 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Send, Bot, Loader2, CheckCircle2, XCircle,
-  AlertCircle, Clock, Zap, ChevronDown, ChevronUp,
-  Square, Copy, Check
+  Clock, Zap, ChevronDown, ChevronUp,
+  Square, Copy, Check, Mic, MicOff
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -41,11 +41,10 @@ function PlanStep({ step, index }: { step: AgentStep; index: number }) {
     error: <XCircle size={11} className="text-error" />,
   }
   return (
-    <div className={`flex items-start gap-2 py-1.5 px-2 rounded text-xs transition-colors ${
-      step.status === 'running' ? 'bg-warning/10 border border-warning/20' :
+    <div className={`flex items-start gap-2 py-1.5 px-2 rounded text-xs transition-colors ${step.status === 'running' ? 'bg-warning/10 border border-warning/20' :
       step.status === 'done' ? 'bg-success/5' :
-      step.status === 'error' ? 'bg-error/10 border border-error/20' : ''
-    }`}>
+        step.status === 'error' ? 'bg-error/10 border border-error/20' : ''
+      }`}>
       <div className="mt-0.5 flex-shrink-0">{icons[step.status]}</div>
       <div className="flex-1 min-w-0">
         <div className={`${step.status === 'done' ? 'text-text-dim line-through' : 'text-text-secondary'}`}>
@@ -110,7 +109,7 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
 
 function ChatMessage({ role, content }: ChatMessageProps) {
   // Clean assistant response to hide technical JSON and show only the natural language part
-  const displayContent = role === 'assistant' 
+  const displayContent = role === 'assistant'
     ? content.split(/```json|\{/)[0].trim()
     : content;
 
@@ -123,15 +122,14 @@ function ChatMessage({ role, content }: ChatMessageProps) {
           <Bot size={12} className="text-primary-300" />
         </div>
       )}
-      <div className={`max-w-[90%] rounded-xl px-4 py-2.5 text-[11px] leading-relaxed shadow-sm ${
-        role === 'user'
-          ? 'bg-primary-500/20 border border-primary-400/20 text-text-primary'
-          : 'bg-surface-200 border border-border text-text-secondary'
-      }`}>
+      <div className={`max-w-[90%] rounded-xl px-4 py-2.5 text-[11px] leading-relaxed shadow-sm ${role === 'user'
+        ? 'bg-primary-500/20 border border-primary-400/20 text-text-primary'
+        : 'bg-surface-200 border border-border text-text-secondary'
+        }`}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            code({ node, inline, className, children, ...props }: any) {
+            code({ inline, className, children, ...props }: { inline?: boolean; className?: string; children: React.ReactNode }) {
               const match = /language-(\w+)/.exec(className || '')
               return !inline && match ? (
                 <CodeBlock
@@ -163,12 +161,18 @@ function ChatMessage({ role, content }: ChatMessageProps) {
 export function AgentPanel() {
   const {
     status, plan, messages, modelReady, modelProgress, modelProgressText,
-    addMessage, setStatus
   } = useAgentStore()
 
   const [input, setInput] = useState('')
   const [showPlan, setShowPlan] = useState(true)
+  const [isListening, setIsListening] = useState(false)
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [interimTranscript, setInterimTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Lazy-import agentService to avoid circular deps
   const [agentService, setAgentService] = useState<import('@/core/services/AgentService').AgentService | null>(null)
@@ -214,8 +218,83 @@ export function AgentPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Speech Recognition Setup
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        setIsSpeaking(true)
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+        silenceTimerRef.current = setTimeout(() => setIsSpeaking(false), 1000)
+
+        let interim = ''
+        let final = ''
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript
+          } else {
+            interim += event.results[i][0].transcript
+          }
+        }
+
+        setInterimTranscript(interim)
+        if (final) {
+          setInput((prev) => (prev ? `${prev.trim()} ${final.trim()}` : final.trim()))
+        }
+      }
+
+      recognition.onstart = () => setIsListening(true)
+      recognition.onend = () => {
+        setIsListening(false)
+        setIsSpeaking(false)
+        setInterimTranscript('')
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error)
+        setIsListening(false)
+        setIsSpeaking(false)
+        setInterimTranscript('')
+      }
+
+      recognitionRef.current = recognition
+    }
+  }, [])
+
+  function toggleListening() {
+    if (!recognitionRef.current) return
+
+    if (isListening) {
+      recognitionRef.current.stop()
+    } else {
+      recognitionRef.current.start()
+      setIsListening(true)
+    }
+
+    // Ensure focus returns to the textarea so 'Enter' key works
+    setTimeout(() => {
+      textareaRef.current?.focus()
+    }, 10)
+  }
+
   async function handleSend() {
     if (!input.trim() || !agentService) return
+
+    // Auto-stop voice session on send
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop()
+      setIsListening(false)
+    }
+
     const prompt = input.trim()
     setInput('')
     // DO NOT addMessage here anymore! AgentService.start() will emit 'user' message, 
@@ -297,7 +376,7 @@ export function AgentPanel() {
         {messages.map((msg) => (
           <ChatMessage key={msg.id} role={msg.role} content={msg.content} />
         ))}
-        
+
         {/* Active Tool Badge (Cleaner "Thinking" UI) */}
         {(status === 'executing' || status === 'planning' || status === 'reflecting') && (
           <div className="flex items-start gap-3 animate-pulse-slow">
@@ -318,40 +397,78 @@ export function AgentPanel() {
       </div>
 
       {/* Input */}
-      <div className="px-3 py-3 border-t border-border flex-shrink-0">
-        <div className="flex items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-            placeholder={modelReady ? 'Describe your task… (Enter to send)' : 'Loading model…'}
-            disabled={!modelReady || (status !== 'idle' && status !== 'error' && status !== 'done')}
-            rows={3}
-            className="flex-1 bg-surface-200 border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-primary-400/50 resize-none transition-colors disabled:opacity-50 font-sans shadow-inner"
-          />
-          {status !== 'idle' && status !== 'done' && status !== 'error' ? (
+      <div className="px-3 py-4 border-t border-border flex-shrink-0 relative bg-surface-100">
+        {/* Live Caption Overlay */}
+        {isListening && (interimTranscript || isSpeaking) && (
+          <div className="absolute -top-12 left-3 right-3 animate-fade-in z-20">
+            <div className={`px-3 py-2 rounded-lg bg-primary-500/10 border border-primary-500/30 backdrop-blur-md text-[10px] text-primary-300 font-medium flex items-center gap-2 shadow-2xl ${isSpeaking ? 'animate-pulse-slow' : ''}`}>
+              <Mic size={11} className={isSpeaking ? 'animate-pulse text-primary-400' : 'text-primary-300/50'} />
+              <span className="truncate italic">
+                {interimTranscript || (isSpeaking ? 'Listening...' : 'Thinking...')}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-stretch gap-2 h-[88px]">
+          <div className="flex-1 relative">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+              placeholder={modelReady ? 'Talk to Southstack…' : 'Loading model…'}
+              disabled={!modelReady || (status !== 'idle' && status !== 'error' && status !== 'done')}
+              className={`w-full h-full bg-surface-200 border rounded-xl px-4 py-3 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-primary-400/50 resize-none transition-all disabled:opacity-50 font-sans shadow-inner leading-relaxed ${isListening ? 'border-error/50 ring-1 ring-error/20' : 'border-border'
+                }`}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 justify-between">
             <button
-              onClick={() => agentService?.stop()}
-              className="p-2.5 bg-error/20 hover:bg-error/30 text-error rounded-lg transition-colors flex-shrink-0 border border-error/30"
-              title="Stop execution"
+              onClick={toggleListening}
+              disabled={!modelReady}
+              className={`p-2.5 cursor-pointer rounded-xl transition-all flex-shrink-0 border flex items-center justify-center ${isListening
+                ? 'bg-error/20 border-error text-error shadow-lg shadow-error/10'
+                : 'bg-surface-300 border-border text-text-dim hover:text-text-primary hover:border-primary-500/40'
+                }`}
+              style={{ height: 'calc(50% - 3px)' }}
+              title={isListening ? 'Stop listening' : 'Voice input'}
             >
-              <Square size={14} fill="currentColor" />
+              {isListening ? (
+                <div className={isSpeaking ? 'animate-pulse' : ''}>
+                  <MicOff size={15} />
+                </div>
+              ) : (
+                <Mic size={15} />
+              )}
             </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!modelReady || !input.trim() || (status !== 'idle' && status !== 'error' && status !== 'done')}
-              className="p-2.5 bg-primary-500 hover:bg-primary-400 disabled:opacity-40 rounded-lg transition-colors flex-shrink-0 shadow-lg shadow-primary-500/20"
-              title="Send (Enter)"
-            >
-              <Send size={14} className="text-white" />
-            </button>
-          )}
+
+            {status !== 'idle' && status !== 'done' && status !== 'error' ? (
+              <button
+                onClick={() => agentService?.stop()}
+                className="p-2.5 bg-error/20 hover:bg-error/30 text-error rounded-xl transition-colors flex-shrink-0 border border-error/30 flex items-center justify-center"
+                style={{ height: 'calc(50% - 3px)' }}
+                title="Stop execution"
+              >
+                <Square size={15} fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!modelReady || !input.trim() || (status !== 'idle' && status !== 'error' && status !== 'done')}
+                className="p-2.5 cursor-pointer bg-primary-500 hover:bg-primary-400 disabled:opacity-40 rounded-xl transition-colors flex-shrink-0 shadow-lg shadow-primary-500/20 flex items-center justify-center"
+                style={{ height: 'calc(50% - 3px)' }}
+                title="Send (Enter)"
+              >
+                <Send size={15} className="text-white" />
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-[10px] text-text-dim mt-1.5 text-center">
           Shift+Enter for newline • Enter to send • Qwen2.5-Coder (offline)

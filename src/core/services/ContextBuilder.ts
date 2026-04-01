@@ -75,7 +75,7 @@ export class ContextBuilder {
       }
       
       messages.push({
-        role: msg.role === 'tool' ? 'user' : msg.role as any,
+        role: (msg.role === 'tool' ? 'user' : msg.role) as 'user' | 'assistant' | 'system',
         content: msg.role === 'tool' ? `[Tool Result]: ${content}` : content
       })
     })

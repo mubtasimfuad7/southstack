@@ -2,7 +2,7 @@
 // UI LAYER: MenuBar — top bar with project open/sync actions
 // ============================================================
 
-import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { useFSStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'

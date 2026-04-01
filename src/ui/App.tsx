@@ -118,8 +118,10 @@ export function App() {
             <HorizontalSplit
               left={centerColumn}
               right={agentPanelOpen ? <AgentPanel /> : null}
-              initialLeftWidth={800}
-              minLeft={400}
+              primaryPane="right"
+              initialRightWidth={400}
+              minRight={280}
+              maxRight={1200}
             />
           }
           initialLeftWidth={260}

@@ -2,7 +2,7 @@
 // UI LAYER: ResizableSplitPane — drag to resize panels
 // ============================================================
 
-import { useRef, useCallback, ReactNode } from 'react'
+import { useRef, useCallback, ReactNode, useState } from 'react'
 
 interface SplitPaneProps {
   left: ReactNode
@@ -10,13 +10,30 @@ interface SplitPaneProps {
   initialLeftWidth?: number
   minLeft?: number
   maxLeft?: number
+  initialRightWidth?: number
+  minRight?: number
+  maxRight?: number
+  primaryPane?: 'left' | 'right'
   className?: string
 }
 
-export function HorizontalSplit({ left, right, initialLeftWidth = 240, minLeft = 140, maxLeft = 480, className = '' }: SplitPaneProps) {
+export function HorizontalSplit({ 
+  left, 
+  right, 
+  initialLeftWidth = 240, 
+  minLeft = 140, 
+  maxLeft = 2000, 
+  initialRightWidth = 320,
+  minRight = 200,
+  maxRight = 800,
+  primaryPane = 'left',
+  className = '' 
+}: SplitPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
+  const [currentWidth, setCurrentWidth] = useState(primaryPane === 'left' ? initialLeftWidth : initialRightWidth)
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -25,10 +42,16 @@ export function HorizontalSplit({ left, right, initialLeftWidth = 240, minLeft =
     document.body.style.userSelect = 'none'
 
     const onMove = (me: MouseEvent) => {
-      if (!isDragging.current || !containerRef.current || !leftRef.current) return
+      if (!isDragging.current || !containerRef.current) return
       const rect = containerRef.current.getBoundingClientRect()
-      const newWidth = Math.min(maxLeft, Math.max(minLeft, me.clientX - rect.left))
-      leftRef.current.style.width = `${newWidth}px`
+      
+      if (primaryPane === 'left') {
+        const newWidth = Math.min(maxLeft, Math.max(minLeft, me.clientX - rect.left))
+        setCurrentWidth(newWidth)
+      } else {
+        const newWidth = Math.min(maxRight, Math.max(minRight, rect.right - me.clientX))
+        setCurrentWidth(newWidth)
+      }
     }
 
     const onUp = () => {
@@ -41,24 +64,66 @@ export function HorizontalSplit({ left, right, initialLeftWidth = 240, minLeft =
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [minLeft, maxLeft])
+  }, [minLeft, maxLeft, minRight, maxRight, primaryPane])
 
   return (
-    <div ref={containerRef} className={`flex flex-row h-full overflow-hidden ${className}`}>
-      <div ref={leftRef} style={{ width: initialLeftWidth, flexShrink: 0 }} className="flex flex-col overflow-hidden">
-        {left}
-      </div>
-      {/* Resize handle */}
-      <div
-        onMouseDown={onMouseDown}
-        className="w-1 flex-shrink-0 bg-border hover:bg-primary-400/50 cursor-col-resize transition-colors"
-      />
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {right}
-      </div>
+    <div ref={containerRef} className={`flex flex-row h-full w-full flex-1 overflow-hidden ${className}`}>
+      {primaryPane === 'left' ? (
+        <>
+          <div 
+            ref={leftRef} 
+            style={{ 
+              width: right ? `${currentWidth}px` : '100%', 
+              flexShrink: 0 
+            }} 
+            className="flex flex-col overflow-hidden"
+          >
+            {left}
+          </div>
+          
+          {right && (
+            <>
+              {/* Resize handle */}
+              <div
+                onMouseDown={onMouseDown}
+                className="w-1.5 flex-shrink-0 bg-transparent hover:bg-primary-500/20 cursor-col-resize transition-all relative z-10 -ml-[5px]"
+              />
+              <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+                {right}
+              </div>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            {left}
+          </div>
+          {right && (
+            <>
+              {/* Resize handle */}
+              <div
+                onMouseDown={onMouseDown}
+                className="w-1.5 flex-shrink-0 bg-transparent hover:bg-primary-500/20 cursor-col-resize transition-all relative z-10 -mr-[5px]"
+              />
+              <div 
+                ref={rightRef}
+                style={{ 
+                  width: `${currentWidth}px`, 
+                  flexShrink: 0 
+                }} 
+                className="flex flex-col overflow-hidden"
+              >
+                {right}
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   )
 }
+
 
 interface VerticalSplitProps {
   top: ReactNode
@@ -99,7 +164,7 @@ export function VerticalSplit({ top, bottom, bottomHeight = 220, minBottom = 80,
   }, [minBottom, maxBottom])
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full overflow-hidden">
+    <div ref={containerRef} className="flex flex-col h-full w-full overflow-hidden">
       <div className="flex-1 overflow-hidden min-h-0">
         {top}
       </div>
