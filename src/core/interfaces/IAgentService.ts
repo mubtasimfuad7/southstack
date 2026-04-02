@@ -3,12 +3,21 @@
 // Manages AI lifecycle: planning, tool execution, reflection
 // ============================================================
 
-export type AgentStatus = 'idle' | 'planning' | 'executing' | 'reflecting' | 'done' | 'error'
+export type AgentStatus = 'idle' | 'planning' | 'awaiting_confirmation' | 'executing' | 'validating' | 'reflecting' | 'fixing' | 'done' | 'error'
 
 export interface AgentTool {
   name: string
   description: string
-  execute(input: Record<string, unknown>): Promise<unknown>
+  execute(input: Record<string, any>): Promise<any>
+}
+
+export interface AgentContext {
+  userIntent: string
+  activeFile: string
+  openFiles: string[]
+  relevantFiles: string[]
+  relevantSnippets: string[]
+  terminalOutput: string
 }
 
 export interface AgentAction {
@@ -35,6 +44,8 @@ export interface AgentResponse {
 export interface IAgentService {
   // Lifecycle
   start(userPrompt: string): Promise<void>
+  confirm(): void
+  cancel(): void
   pause(): void
   resume(): void
   stop(): void

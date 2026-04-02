@@ -10,12 +10,14 @@ import { getLanguageFromPath } from '@/core/utils/language'
 
 type TabsListener = (tabs: EditorTab[]) => void
 type ActiveListener = (tab: EditorTab | null) => void
+type DraftResolutionListener = (tabId: string, status: 'accepted' | 'rejected') => void
 
 export class EditorService implements IEditorService {
   private tabs: Map<string, EditorTab> = new Map()
   private activeTabId: string | null = null
   private tabsListeners: Set<TabsListener> = new Set()
   private activeListeners: Set<ActiveListener> = new Set()
+  private draftListeners: Set<DraftResolutionListener> = new Set()
   private autoSaveTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
 
   // ──────────────────────────────────────────────────────────
@@ -57,6 +59,13 @@ export class EditorService implements IEditorService {
     this._emitActive()
   }
 
+  closeTabByPath(path: string): void {
+    const tab = this.findTabByPath(path)
+    if (tab) {
+      this.closeTab(tab.id)
+    }
+  }
+
   switchTab(tabId: string): void {
     if (this.tabs.has(tabId)) {
       this.activeTabId = tabId
@@ -94,12 +103,14 @@ export class EditorService implements IEditorService {
     )
   }
 
-  updateContentFromExternal(path: string, content: string): void {
+  updateContentFromExternal(path: string, content: string, force = false): void {
     const tab = this.findTabByPath(path)
     if (!tab) return
-    // Only update if no active local edits or drafts
-    if (!tab.isDirty && !tab.draftContent) {
+    // Only update if no active local edits or drafts, OR if forced (autonomous mode)
+    if (force || (!tab.isDirty && !tab.draftContent)) {
       tab.content = content
+      tab.isDirty = false
+      tab.draftContent = undefined // Clear any existing draft if forced
       this._emitTabs()
       this._emitActive()
     }
@@ -151,6 +162,7 @@ export class EditorService implements IEditorService {
     
     this._emitTabs()
     this._emitActive()
+    this._emitDraftResolution(tabId, 'accepted')
   }
 
   async rejectDraft(tabId: string): Promise<void> {
@@ -165,6 +177,7 @@ export class EditorService implements IEditorService {
 
     this._emitTabs()
     this._emitActive()
+    this._emitDraftResolution(tabId, 'rejected')
   }
 
   async saveAllTabs(): Promise<void> {
@@ -203,6 +216,11 @@ export class EditorService implements IEditorService {
     return () => this.activeListeners.delete(cb)
   }
 
+  onDraftResolution(cb: DraftResolutionListener): () => void {
+    this.draftListeners.add(cb)
+    return () => this.draftListeners.delete(cb)
+  }
+
   private _emitTabs() {
     const tabs = this.getAllTabs()
     this.tabsListeners.forEach((cb) => cb(tabs))
@@ -211,6 +229,10 @@ export class EditorService implements IEditorService {
   private _emitActive() {
     const active = this.getActiveTab()
     this.activeListeners.forEach((cb) => cb(active))
+  }
+
+  private _emitDraftResolution(tabId: string, status: 'accepted' | 'rejected') {
+    this.draftListeners.forEach((cb) => cb(tabId, status))
   }
 }
 

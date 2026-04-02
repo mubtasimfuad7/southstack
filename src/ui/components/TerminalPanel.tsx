@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal as TerminalIcon, X, ChevronDown } from 'lucide-react'
 import { useTerminalStore } from '@/application/store'
-import { contextBuilder } from '@/core/services/ContextBuilder'
+import { contextBuilderService } from '@/core/services/ContextBuilderService'
 import { runtimeService } from '@/core/services/RuntimeService'
 import { fileSystemService } from '@/core/services/FileSystemService'
 
@@ -95,7 +95,7 @@ export function TerminalPanel() {
         shellProcess.output.pipeTo(new WritableStream({
           write(data) {
             term.write(data)
-            contextBuilder.appendTerminalOutput(data)
+            contextBuilderService.appendTerminalOutput(data)
           }
         }))
 

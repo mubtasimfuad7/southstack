@@ -53,11 +53,8 @@ export class FileSystemService implements IFileSystemService {
 
   async clearProject(): Promise<void> {
     this.rootHandle = null
-    await saveMeta('rootDirHandle', null)
-    const allFiles = await listAllFiles()
-    for (const f of allFiles) {
-      await idbDelete(f.path)
-    }
+    const { clearAllStores } = await import('@/infrastructure/fs/idb-storage')
+    await clearAllStores()
     useFSStore.getState().setProjectRoot(null)
     useFSStore.getState().setHasLocalAccess(false)
   }
@@ -184,9 +181,12 @@ export class FileSystemService implements IFileSystemService {
     const { runtimeService } = await import('@/core/services/RuntimeService')
     await runtimeService.writeFile(path, content)
 
-    // Only refresh the parent directory subtree
-    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-    await useFSStore.getState().refreshSubtree(parentDir)
+    // Sync to Editor
+    const { editorService } = await import('@/core/services/EditorService')
+    editorService.updateContentFromExternal(path, content)
+
+    const tree = await this.getTree()
+    useFSStore.getState().setProjectRoot(tree)
   }
 
   async createFile(path: string, content = ''): Promise<void> {
@@ -195,8 +195,12 @@ export class FileSystemService implements IFileSystemService {
     const { runtimeService } = await import('@/core/services/RuntimeService')
     await runtimeService.writeFile(path, content)
 
-    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-    await useFSStore.getState().refreshSubtree(parentDir)
+    // Sync to Editor
+    const { editorService } = await import('@/core/services/EditorService')
+    editorService.updateContentFromExternal(path, content)
+
+    const tree = await this.getTree()
+    useFSStore.getState().setProjectRoot(tree)
   }
 
   async deleteFile(path: string): Promise<void> {
@@ -209,8 +213,8 @@ export class FileSystemService implements IFileSystemService {
       console.warn(`Failed to rm in runtime: ${path}`, e)
     }
 
-    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-    await useFSStore.getState().refreshSubtree(parentDir)
+    const tree = await this.getTree()
+    useFSStore.getState().setProjectRoot(tree)
   }
 
   async moveFile(from: string, to: string): Promise<void> {

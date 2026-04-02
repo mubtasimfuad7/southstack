@@ -69,6 +69,20 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, termi
           {isSyncing ? <RefreshCw size={13} className="animate-spin" /> : <Save size={13} />}
           {isSyncing ? 'Syncing…' : 'Sync to Disk'}
         </button>
+
+        <button
+          onClick={async () => {
+            if (window.confirm('Are you sure you want to RESET the entire session? This will permanently delete all un-synced files in browser storage.')) {
+              await fileSystemService.clearProject()
+              window.location.reload()
+            }
+          }}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-error/70 hover:text-error hover:bg-error/5 transition-colors"
+          title="Clear all local data and restart"
+        >
+          <RefreshCw size={12} />
+          Reset Session
+        </button>
       </div>
 
       {/* Right: Toggle panels */}

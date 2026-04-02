@@ -20,7 +20,10 @@ function StatusBadge({ status }: { status: AgentStatus }) {
     idle: { label: 'Idle', color: 'text-text-dim', icon: <Clock size={10} /> },
     planning: { label: 'Planning', color: 'text-accent-400', icon: <Loader2 size={10} className="animate-spin" /> },
     executing: { label: 'Executing', color: 'text-warning', icon: <Zap size={10} /> },
+    validating: { label: 'Validating', color: 'text-primary-400', icon: <CheckCircle2 size={10} className="animate-pulse" /> },
     reflecting: { label: 'Reflecting', color: 'text-primary-300', icon: <Loader2 size={10} className="animate-spin" /> },
+    fixing: { label: 'Fixing', color: 'text-error', icon: <Loader2 size={10} className="animate-spin" /> },
+    awaiting_confirmation: { label: 'Awaiting Approval', color: 'text-accent-400', icon: <Clock size={10} className="animate-pulse" /> },
     done: { label: 'Done', color: 'text-success', icon: <CheckCircle2 size={10} /> },
     error: { label: 'Error', color: 'text-error', icon: <XCircle size={10} /> },
   }
@@ -108,12 +111,12 @@ function CodeBlock({ language, value }: { language: string; value: string }) {
 }
 
 function ChatMessage({ role, content }: ChatMessageProps) {
-  // Clean assistant response to hide technical JSON and show only the natural language part
-  const displayContent = role === 'assistant'
+  const isPlainError = content.includes('❌') || content.includes('⚠') || content.includes('Error:')
+  const displayContent = (role === 'assistant' && !isPlainError)
     ? content.split(/```json|\{/)[0].trim()
     : content;
 
-  if (!displayContent && role === 'assistant') return null;
+  if (!displayContent && role === 'assistant' && !isPlainError) return null;
 
   return (
     <div className={`flex gap-3 animate-fade-in ${role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -160,7 +163,7 @@ function ChatMessage({ role, content }: ChatMessageProps) {
 
 export function AgentPanel() {
   const {
-    status, plan, messages, modelReady, modelProgress, modelProgressText,
+    status, plan, messages, modelReady, modelProgress, modelProgressText, setNeedsConfirmation
   } = useAgentStore()
 
   const [input, setInput] = useState('')
@@ -170,9 +173,30 @@ export function AgentPanel() {
   const [interimTranscript, setInterimTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isRunning = status !== 'idle' && status !== 'done' && status !== 'error' && status !== 'awaiting_confirmation'
+  const isAwaitingApproval = status === 'awaiting_confirmation'
+  const isActuallyBusy = isRunning && !isAwaitingApproval
+  const prevIsRunning = useRef(isRunning)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    let int: ReturnType<typeof setInterval>
+    if (isRunning || isAwaitingApproval) {
+      if (!prevIsRunning.current) setElapsed(0)
+      int = setInterval(() => setElapsed(e => e + 1), 1000)
+    }
+    prevIsRunning.current = (isRunning || isAwaitingApproval)
+    return () => clearInterval(int)
+  }, [isRunning, isAwaitingApproval])
+
+  const formatElapsed = (s: number) => {
+    const mins = Math.floor(s / 60)
+    const secs = s % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
 
   // Lazy-import agentService to avoid circular deps
   const [agentService, setAgentService] = useState<import('@/core/services/AgentService').AgentService | null>(null)
@@ -195,7 +219,13 @@ export function AgentPanel() {
       svc.onPlanUpdate((steps) => store.getState().setPlan(steps))
       svc.onMessage((msg, role) => {
         if (role === 'assistant') {
-          store.getState().appendToLastAssistantMessage(msg)
+          const state = store.getState()
+          const last = state.messages[state.messages.length - 1]
+          if (last && last.role === 'assistant') {
+            state.appendToLastAssistantMessage(msg)
+          } else {
+            state.addMessage(role, msg)
+          }
         } else {
           store.getState().addMessage(role, msg)
         }
@@ -203,7 +233,6 @@ export function AgentPanel() {
 
       setAgentService(svc)
 
-      // Initialize model in background
       try {
         await localModelProvider.initialize()
         store.getState().setModelReady(true)
@@ -220,7 +249,6 @@ export function AgentPanel() {
 
   // Speech Recognition Setup
   useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition()
@@ -228,7 +256,6 @@ export function AgentPanel() {
       recognition.interimResults = true
       recognition.lang = 'en-US'
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
         setIsSpeaking(true)
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
@@ -258,7 +285,6 @@ export function AgentPanel() {
         setInterimTranscript('')
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error)
         setIsListening(false)
@@ -272,15 +298,12 @@ export function AgentPanel() {
 
   function toggleListening() {
     if (!recognitionRef.current) return
-
     if (isListening) {
       recognitionRef.current.stop()
     } else {
       recognitionRef.current.start()
       setIsListening(true)
     }
-
-    // Ensure focus returns to the textarea so 'Enter' key works
     setTimeout(() => {
       textareaRef.current?.focus()
     }, 10)
@@ -288,18 +311,21 @@ export function AgentPanel() {
 
   async function handleSend() {
     if (!input.trim() || !agentService) return
-
-    // Auto-stop voice session on send
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop()
       setIsListening(false)
     }
-
     const prompt = input.trim()
     setInput('')
-    // DO NOT addMessage here anymore! AgentService.start() will emit 'user' message, 
-    // and the listener in useEffect will handle it correctly without duplication.
     await agentService.start(prompt)
+  }
+
+  async function handleConfirm() {
+    if (agentService) agentService.confirm()
+  }
+
+  async function handleCancel() {
+    if (agentService) agentService.cancel()
   }
 
   return (
@@ -310,8 +336,16 @@ export function AgentPanel() {
           <div className={`w-1.5 h-1.5 rounded-full ${modelReady ? 'bg-success animate-pulse-slow' : 'bg-warning animate-pulse'}`} />
           <span className="text-xs font-semibold text-text-secondary uppercase tracking-widest">AI Agent</span>
         </div>
-        <StatusBadge status={status} />
+        <div className="flex items-center gap-2">
+          {elapsed > 0 && (
+            <div className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${isRunning ? 'bg-primary-500/10 text-primary-300 border-primary-500/30' : 'bg-surface-300 text-text-dim border-border'}`}>
+              {formatElapsed(elapsed)}
+            </div>
+          )}
+          <StatusBadge status={status} />
+        </div>
       </div>
+
 
       {/* Model loading progress */}
       {!modelReady && (
@@ -360,24 +394,24 @@ export function AgentPanel() {
               <p className="text-xs font-medium text-text-secondary">Southstack AI</p>
               <p className="text-[11px] text-text-dim mt-1">Describe what you want to build or fix</p>
             </div>
-            <div className="flex flex-wrap justify-center gap-1.5 mt-2">
-              {['Fix all TypeScript errors', 'Add authentication', 'Refactor this file', 'Write unit tests'].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setInput(s)}
-                  className="px-2 py-1 text-[10px] rounded-md bg-surface-200 border border-border text-text-secondary hover:text-text-primary hover:border-primary-400/40 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
           </div>
         )}
         {messages.map((msg) => (
           <ChatMessage key={msg.id} role={msg.role} content={msg.content} />
         ))}
 
-        {/* Active Tool Badge (Cleaner "Thinking" UI) */}
+        {/* Global Error Banner */}
+        {status === 'error' && (
+          <div className="flex flex-col gap-2 p-3 bg-error/10 border border-error/30 rounded-xl animate-in fade-in slide-in-from-top-1">
+            <div className="flex items-center gap-2 text-error text-[11px] font-bold uppercase tracking-tight">
+              <XCircle size={14} /> Critical Error Encountered
+            </div>
+            <p className="text-[10px] text-text-secondary leading-relaxed">
+              The agent has encountered a failure. Check the logs below for details or try restarting the task.
+            </p>
+          </div>
+        )}
+
         {(status === 'executing' || status === 'planning' || status === 'reflecting') && (
           <div className="flex items-start gap-3 animate-pulse-slow">
             <div className="w-6 h-6 rounded-full bg-accent-500/20 border border-accent-400/20 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -393,23 +427,36 @@ export function AgentPanel() {
             </div>
           </div>
         )}
+
+        {status === 'awaiting_confirmation' && (
+          <div className="flex flex-col gap-3 p-4 bg-accent-500/10 border border-accent-400/20 rounded-xl animate-in fade-in slide-in-from-bottom-2 shadow-lg shadow-accent-500/5">
+            <div className="flex items-center gap-2 text-accent-300 text-[11px] font-bold uppercase tracking-widest">
+              <Clock size={14} className="animate-pulse" /> Approval Required
+            </div>
+            <p className="text-[10px] text-text-secondary leading-relaxed">
+              I've drafted a plan to complete your request. Please review the steps above. Should I proceed?
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleConfirm}
+                className="flex-1 px-4 py-2 bg-accent-500 hover:bg-accent-400 text-white rounded-lg text-[10px] font-bold transition-all shadow-md shadow-accent-500/20"
+              >
+                Approve & Execute
+              </button>
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 bg-surface-300 hover:bg-surface-400 text-text-secondary rounded-lg text-[10px] font-bold border border-border transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="px-3 py-4 border-t border-border flex-shrink-0 relative bg-surface-100">
-        {/* Live Caption Overlay */}
-        {isListening && (interimTranscript || isSpeaking) && (
-          <div className="absolute -top-12 left-3 right-3 animate-fade-in z-20">
-            <div className={`px-3 py-2 rounded-lg bg-primary-500/10 border border-primary-500/30 backdrop-blur-md text-[10px] text-primary-300 font-medium flex items-center gap-2 shadow-2xl ${isSpeaking ? 'animate-pulse-slow' : ''}`}>
-              <Mic size={11} className={isSpeaking ? 'animate-pulse text-primary-400' : 'text-primary-300/50'} />
-              <span className="truncate italic">
-                {interimTranscript || (isSpeaking ? 'Listening...' : 'Thinking...')}
-              </span>
-            </div>
-          </div>
-        )}
-
         <div className="flex items-stretch gap-2 h-[88px]">
           <div className="flex-1 relative">
             <textarea
@@ -422,11 +469,18 @@ export function AgentPanel() {
                   handleSend()
                 }
               }}
-              placeholder={modelReady ? 'Talk to Southstack…' : 'Loading model…'}
-              disabled={!modelReady || (status !== 'idle' && status !== 'error' && status !== 'done')}
+              placeholder={modelReady ? (isAwaitingApproval ? 'Reply to agent or give feedback...' : 'Talk to Southstack…') : 'Loading model…'}
+              disabled={!modelReady || isActuallyBusy}
               className={`w-full h-full bg-surface-200 border rounded-xl px-4 py-3 text-xs text-text-primary placeholder:text-text-dim focus:outline-none focus:border-primary-400/50 resize-none transition-all disabled:opacity-50 font-sans shadow-inner leading-relaxed ${isListening ? 'border-error/50 ring-1 ring-error/20' : 'border-border'
                 }`}
             />
+            {isListening && interimTranscript && (
+              <div className="absolute inset-x-4 bottom-3 pointer-events-none animate-pulse-slow">
+                <span className="text-[10px] text-primary-300 font-medium bg-surface-200/80 backdrop-blur-sm px-2 py-1 rounded-md border border-primary-400/20">
+                  {interimTranscript}
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-1.5 justify-between">
             <button
@@ -437,42 +491,30 @@ export function AgentPanel() {
                 : 'bg-surface-300 border-border text-text-dim hover:text-text-primary hover:border-primary-500/40'
                 }`}
               style={{ height: 'calc(50% - 3px)' }}
-              title={isListening ? 'Stop listening' : 'Voice input'}
             >
-              {isListening ? (
-                <div className={isSpeaking ? 'animate-pulse' : ''}>
-                  <MicOff size={15} />
-                </div>
-              ) : (
-                <Mic size={15} />
-              )}
+              {isListening ? <MicOff size={15} /> : <Mic size={15} />}
             </button>
 
-            {status !== 'idle' && status !== 'done' && status !== 'error' ? (
+            {isRunning ? (
               <button
                 onClick={() => agentService?.stop()}
                 className="p-2.5 bg-error/20 hover:bg-error/30 text-error rounded-xl transition-colors flex-shrink-0 border border-error/30 flex items-center justify-center"
                 style={{ height: 'calc(50% - 3px)' }}
-                title="Stop execution"
               >
                 <Square size={15} fill="currentColor" />
               </button>
             ) : (
               <button
                 onClick={handleSend}
-                disabled={!modelReady || !input.trim() || (status !== 'idle' && status !== 'error' && status !== 'done')}
+                disabled={!modelReady || !input.trim() || isRunning}
                 className="p-2.5 cursor-pointer bg-primary-500 hover:bg-primary-400 disabled:opacity-40 rounded-xl transition-colors flex-shrink-0 shadow-lg shadow-primary-500/20 flex items-center justify-center"
                 style={{ height: 'calc(50% - 3px)' }}
-                title="Send (Enter)"
               >
                 <Send size={15} className="text-white" />
               </button>
             )}
           </div>
         </div>
-        <p className="text-[10px] text-text-dim mt-1.5 text-center">
-          Shift+Enter for newline • Enter to send • Qwen2.5-Coder (offline)
-        </p>
       </div>
     </div>
   )

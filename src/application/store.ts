@@ -136,6 +136,7 @@ interface AgentState {
   modelProgress: number
   modelProgressText: string
   agentPanelOpen: boolean
+  needsConfirmation: boolean
   setStatus: (s: AgentStatus) => void
   setPlan: (steps: AgentStep[]) => void
   addMessage: (role: 'user' | 'assistant', content: string) => void
@@ -143,6 +144,7 @@ interface AgentState {
   setModelReady: (v: boolean) => void
   setModelProgress: (p: number, text: string) => void
   setAgentPanelOpen: (v: boolean) => void
+  setNeedsConfirmation: (v: boolean) => void
 }
 
 export const useAgentStore = create<AgentState>((set) => ({
@@ -153,6 +155,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   modelProgress: 0,
   modelProgressText: '',
   agentPanelOpen: true,
+  needsConfirmation: false,
   setStatus: (status) => set({ status }),
   setPlan: (plan) => set({ plan }),
   addMessage: (role, content) =>
@@ -176,4 +179,5 @@ export const useAgentStore = create<AgentState>((set) => ({
   setModelReady: (v) => set({ modelReady: v }),
   setModelProgress: (p, text) => set({ modelProgress: p, modelProgressText: text }),
   setAgentPanelOpen: (v) => set({ agentPanelOpen: v }),
+  setNeedsConfirmation: (v) => set({ needsConfirmation: v }),
 }))

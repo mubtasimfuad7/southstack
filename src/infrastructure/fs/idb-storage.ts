@@ -57,3 +57,13 @@ export async function loadMeta<T>(key: string): Promise<T | undefined> {
   const db = await getDb()
   return db.get(META_STORE, key)
 }
+
+export async function clearAllStores(): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction([FILES_STORE, META_STORE], 'readwrite')
+  await Promise.all([
+    tx.objectStore(FILES_STORE).clear(),
+    tx.objectStore(META_STORE).clear(),
+    tx.done
+  ])
+}

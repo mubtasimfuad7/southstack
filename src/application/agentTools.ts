@@ -13,33 +13,73 @@ export function buildAgentTools(): AgentTool[] {
       name: 'read_file',
       description: 'Read the contents of a file. Parameters: { "path": string }',
       async execute(args) {
-        const path = (args.path || args.file_path || args.filename || args.file) as string;
+        const path = (args.path || args.file_path || args.filePath || args.filename || args.file) as string;
         if (!path) throw new Error('Missing parameter: path')
         const content = await fileSystemService.readFile(path)
         return { path, content }
       },
     },
     {
-      name: 'write_file',
-      description: 'Propose a code change (Draft). Parameters: { "path": string, "content": string }',
+      name: 'read_file_range',
+      description: 'Read a specific range of lines from a file. Parameters: { "path": string, "startLine": number, "endLine": number }',
       async execute(args) {
-        const path = (args.path || args.file_path || args.filename || args.file) as string;
+        const path = (args.path || args.file) as string;
+        const start = parseInt(String(args.startLine || 1))
+        const end = parseInt(String(args.endLine || 100))
+        
         if (!path) throw new Error('Missing parameter: path')
-        const content = (args.content || args.code || args.text) as string;
+        const content = await fileSystemService.readFile(path)
+        const lines = content.split('\n')
+        const slice = lines.slice(start - 1, end)
         
+        return { 
+          path, 
+          lines: slice, 
+          startLine: start, 
+          endLine: Math.min(end, lines.length),
+          totalLines: lines.length 
+        }
+      },
+    },
+    {
+      name: 'write_file',
+      description: 'Apply changes directly to a file. Parameters: { "path": string, "content": string }',
+      async execute(args) {
+        const path = (args.path || args.file_path || args.filePath || args.filename || args.file) as string;
+        if (!path) throw new Error('Missing parameter: path')
+        const content = (args.content || args.code || args.text || args.body) as string;
+        
+        // Direct write to filesystem (triggers sidebar refresh)
+        try {
+          await fileSystemService.writeFile(path, content ?? '')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.includes('EISDIR') || msg.includes('EEXIST')) {
+            throw new Error(`Cannot write to "${path}" because it is a directory or already exists. Please choose a sub-file path (e.g. "${path}/index.js") or a different filename.`)
+          }
+          throw err
+        }
+        
+        // Direct force update to Editor (bypass review)
         const { editorService } = await import('@/core/services/EditorService')
-        await editorService.proposeChange(path, content ?? '')
+        editorService.updateContentFromExternal(path, content ?? '', true)
         
-        return { success: true, path, note: 'Change proposed to user. Waiting for approval in the Editor Diff View.' }
+        return { success: true, path }
       },
     },
     {
       name: 'create_file',
-      description: 'Create a new empty file. Parameters: { "path": string, "content"?: string }',
+      description: 'Create a new file and open it. Parameters: { "path": string, "content"?: string }',
       async execute(args) {
-        const path = (args.path || args.file_path || args.filename || args.file) as string;
+        const path = (args.path || args.file_path || args.filePath || args.filename || args.file) as string;
         if (!path) throw new Error('Missing parameter: path')
-        await fileSystemService.createFile(path, (args.content as string) ?? '')
+        const content = (args.content as string) ?? ''
+        await fileSystemService.createFile(path, content)
+        
+        // Auto-open in editor
+        const { editorService } = await import('@/core/services/EditorService')
+        await editorService.openTab(path, content)
+        
         return { success: true, path }
       },
     },
@@ -47,9 +87,38 @@ export function buildAgentTools(): AgentTool[] {
       name: 'delete_file',
       description: 'Permanently delete a file. Parameters: { "path": string }',
       async execute(args) {
-        const path = (args.path || args.file_path || args.filename || args.file) as string;
+        const path = (args.path || args.file_path || args.filePath || args.filename || args.file) as string;
         if (!path) throw new Error('Missing parameter: path')
         await fileSystemService.deleteFile(path)
+        
+        // Auto-close in editor
+        const { editorService } = await import('@/core/services/EditorService')
+        editorService.closeTabByPath(path)
+        
+        return { success: true, path }
+      },
+    },
+    {
+      name: 'patch_file',
+      description: 'Find and replace a specific block of text in a file. Parameters: { "path": string, "find": string, "replace": string }',
+      async execute(args) {
+        const path = (args.path || args.file) as string;
+        if (!path) throw new Error('Missing parameter: path')
+        const find = (args.find as string)
+        const replace = (args.replace as string)
+        
+        const content = await fileSystemService.readFile(path)
+        if (!content.includes(find)) {
+          throw new Error(`The "find" text was not found in ${path}. Please ensure you use the EXACT characters (including spaces/indentation).`)
+        }
+        
+        const newContent = content.replace(find, replace)
+        await fileSystemService.writeFile(path, newContent)
+
+        // Sync to Editor
+        const { editorService } = await import('@/core/services/EditorService')
+        editorService.updateContentFromExternal(path, newContent, true)
+
         return { success: true, path }
       },
     },
@@ -82,31 +151,32 @@ export function buildAgentTools(): AgentTool[] {
       },
     },
     {
-      name: 'search_files',
-      description: 'Recursive search for a string across all project files (Grep-like). Parameters: { "query": string }',
+      name: 'grep_search',
+      description: 'Find all occurrences of a string or pattern across the project. Parameters: { "query": string }',
       async execute(args) {
-        const query = (args.query || args.text || args.pattern) as string;
+        const query = (args.query || args.pattern) as string;
         if (!query) throw new Error('Missing parameter: query')
         
-        const allFiles = await fileSystemService.getTree()
-        const results: { path: string; match: string }[] = []
+        const tree = await fileSystemService.getTree()
+        const results: { path: string; line: number; content: string }[] = []
         
         const search = async (node: FileNode) => {
           if (node.type === 'file') {
             const content = await fileSystemService.readFile(node.path)
-            if (content.toLowerCase().includes(query.toLowerCase())) {
-              const lines = content.split('\n')
-              const matchLine = lines.find(l => l.toLowerCase().includes(query.toLowerCase()))
-              results.push({ path: node.path, match: matchLine?.trim() || '' })
-            }
+            const lines = content.split('\n')
+            lines.forEach((l, i) => {
+              if (l.toLowerCase().includes(query.toLowerCase())) {
+                if (results.length < 50) {
+                  results.push({ path: node.path, line: i + 1, content: l.trim() })
+                }
+              }
+            })
           }
-          for (const child of node.children || []) {
-            await search(child)
-          }
+          for (const child of node.children || []) await search(child)
         }
         
-        await search(allFiles)
-        return { results: results.slice(0, 20) } // Limit to top 20 matches
+        await search(tree)
+        return { query, results }
       }
     },
     {
@@ -128,5 +198,58 @@ export function buildAgentTools(): AgentTool[] {
         return result
       },
     },
+    {
+      name: 'analyze_project',
+      description: 'Perform a static analysis scan of the project to find potential bugs or anti-patterns. Parameters: {}',
+      async execute() {
+        const tree = await fileSystemService.getTree()
+        const results: { file: string; issues: string[] }[] = []
+        
+        const scan = async (node: FileNode) => {
+          if (node.type === 'file') {
+            const content = await fileSystemService.readFile(node.path)
+            const issues: string[] = []
+            
+            // Basic heuristic scans
+            if (content.includes('TODO') || content.includes('FIXME')) issues.push('Contains pending tasks (TODO/FIXME)')
+            if (node.name.endsWith('.js') || node.name.endsWith('.ts')) {
+              if (content.includes('console.log')) issues.push('Contains console.log statements')
+              if (content.includes('any') && node.name.endsWith('.ts')) issues.push('Uses "any" type in TypeScript')
+            }
+            if (node.name.endsWith('.py')) {
+              if (content.includes('print(')) issues.push('Contains print statements')
+              if (!content.includes('import')) issues.push('No imports found in Python file')
+            }
+
+            if (issues.length > 0) results.push({ file: node.path, issues })
+          }
+          for (const child of node.children || []) await scan(child)
+        }
+        
+        await scan(tree)
+        return { summary: `Analyzed project. Found issues in ${results.length} files.`, details: results }
+      }
+    },
+    {
+      name: 'run_python',
+      description: 'Execute Python code directly in the browser (OFFLINE). Parameters: { "code": string }',
+      async execute(args) {
+        const code = (args.code || args.script) as string
+        if (!code) throw new Error('Missing parameter: code')
+
+        try {
+          // Dynamic import to keep main bundle small
+          const { loadPyodide } = await import('pyodide')
+          const pyodide = await (window as any)._pyodidePromise || ( (window as any)._pyodidePromise = loadPyodide({
+            indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/' 
+          }))
+          
+          const result = await (await pyodide).runPythonAsync(code)
+          return { stdout: String(result), stderr: '', exitCode: 0 }
+        } catch (err) {
+          return { stdout: '', stderr: String(err), exitCode: 1 }
+        }
+      }
+    }
   ]
 }

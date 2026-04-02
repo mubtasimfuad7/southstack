@@ -141,18 +141,32 @@ export class RuntimeService {
       cwd: '/'
     })
     
-    let stdout = ''
-    const stderr = ''
+    let output = ''
 
-    // Collect stdout
+    // Collect combined output (stdout + stderr in WebContainer)
     process.output.pipeTo(new WritableStream({
       write(data) {
-        stdout += data
+        output += data
       }
     }))
 
-    const exitCode = await process.exit
-    return { stdout, stderr, exitCode }
+    // Prevent infinite hangs on interactive commands or missing binaries
+    const timeoutMsg = 'Command timed out after 15 seconds. Did you run a command that requires user input or a REPL?'
+    let exitCode: number
+    try {
+      exitCode = await Promise.race([
+        process.exit,
+        new Promise<number>((_, reject) => 
+          setTimeout(() => reject(new Error(`${timeoutMsg}\n\nOutput so far:\n${output}`)), 15000)
+        )
+      ])
+    } catch (e) {
+      // If it times out, murder the process so it doesn't leak memory
+      process.kill()
+      throw e
+    }
+
+    return { stdout: output, stderr: '', exitCode }
   }
 
   async readFileContent(path: string): Promise<string> {
