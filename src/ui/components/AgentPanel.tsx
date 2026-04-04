@@ -421,7 +421,7 @@ export function AgentPanel() {
   }
 
   async function handleSend() {
-    if (!input.trim() || !agentService) return
+    if (!input.trim() || !agentService || !modelReady || isActuallyBusy) return
     if (isListening && recognitionRef.current) {
       (recognitionRef.current as { stop: () => void }).stop()
       setIsListening(false)
