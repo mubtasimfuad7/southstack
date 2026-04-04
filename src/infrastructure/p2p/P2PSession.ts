@@ -579,7 +579,10 @@ export class P2PSession {
             void this.connectToDiscoveredPeer({
               peerId: record.peerId,
               multiaddrs: record.multiaddrs ?? [],
-              roomCode: (record as SignalingPeerRecord).roomCode,
+              roomCode: record.roomCode,
+              models: record.models,
+              modelReady: record.modelReady,
+              availability: record.availability
             })
           })
       }

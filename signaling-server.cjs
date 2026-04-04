@@ -134,13 +134,26 @@ async function main() {
       if (type === 'announce' && from) {
         selfId = from
         const roomCode = payload?.roomCode ?? ''
-        peers.set(selfId, { ws, multiaddrs: payload?.multiaddrs ?? [], roomCode })
+        peers.set(selfId, { 
+          ws, 
+          multiaddrs: payload?.multiaddrs ?? [], 
+          roomCode,
+          models: payload?.models ?? [],
+          modelReady: payload?.modelReady ?? false,
+          availability: payload?.availability ?? 'available'
+        })
         console.log(`[Signal] Peer announced: ${selfId} in room ${roomCode || '(none)'} (total: ${peers.size})`)
 
         const announcement = JSON.stringify({
           type: 'announce',
           from: selfId,
-          payload: { multiaddrs: payload?.multiaddrs ?? [], roomCode },
+          payload: { 
+            multiaddrs: payload?.multiaddrs ?? [], 
+            roomCode,
+            models: payload?.models ?? [],
+            modelReady: payload?.modelReady ?? false,
+            availability: payload?.availability ?? 'available'
+          },
         })
 
         for (const [pid, { ws: peerWs, roomCode: peerRoomCode }] of peers) {
@@ -157,7 +170,14 @@ async function main() {
 
         for (const [pid, data] of peers) {
           if (pid !== from && data.roomCode === requestedRoomCode) {
-            list.push({ peerId: pid, multiaddrs: data.multiaddrs, roomCode: data.roomCode })
+            list.push({ 
+              peerId: pid, 
+              multiaddrs: data.multiaddrs, 
+              roomCode: data.roomCode,
+              models: data.models,
+              modelReady: data.modelReady,
+              availability: data.availability
+            })
           }
         }
 

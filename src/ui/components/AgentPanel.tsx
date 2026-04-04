@@ -190,7 +190,7 @@ export function AgentPanel() {
   const peers = useP2PStore(s => s.peers)
   const selfPeerId = useP2PStore(s => s.selfPeerId)
   const setActiveProvider = useP2PStore(s => s.setActiveProvider)
-  const connectedPeers = peers.filter((peer) => peer.peerId !== selfPeerId && peer.models.length > 0)
+  const connectedPeers = peers.filter((peer) => peer.peerId !== selfPeerId)
   const activePeer = peers.find((peer) => peer.peerId === activeProviderId) ?? null
   const isPeerSelectable = (peer: { transportReady: boolean; models: string[]; availability: string }) =>
     peer.transportReady && peer.models.length > 0 && peer.availability !== 'offline'
