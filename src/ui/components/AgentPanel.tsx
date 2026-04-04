@@ -14,6 +14,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAgentStore } from '@/application/store'
 import { useP2PStore } from '@/application/p2pStore'
+import { useNotificationStore } from '@/application/notificationStore'
 import type { AgentStatus, AgentStep } from '@/core/interfaces/IAgentService'
 
 function StatusBadge({ status }: { status: AgentStatus }) {
@@ -354,34 +355,69 @@ export function AgentPanel() {
 
       recognition.onstart = () => setIsListening(true)
       recognition.onend = () => {
-        setIsListening(false)
-        setIsSpeaking(false)
-        setInterimTranscript('')
+        // If we are still supposed to be listening (e.g. stopped randomly without user clicking off), restart it
+        if (isListening && recognitionRef.current) {
+           try {
+             (recognitionRef.current as any).start()
+           } catch {
+             setIsListening(false)
+             setIsSpeaking(false)
+             setInterimTranscript('')
+           }
+        } else {
+           setIsListening(false)
+           setIsSpeaking(false)
+           setInterimTranscript('')
+        }
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onerror = (event: any) => {
+        if (event.error === 'no-speech') {
+           // Ignore harmless timeouts
+           return
+        }
+
         console.error('Speech recognition error:', event.error)
-        setIsListening(false)
-        setIsSpeaking(false)
-        setInterimTranscript('')
+        
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+           useNotificationStore.getState().addNotification('error', 'Microphone access denied. Please allow microphone permissions or ensure you are using a secure context (https/localhost).')
+           setIsListening(false)
+           setIsSpeaking(false)
+           setInterimTranscript('')
+           if (recognitionRef.current) {
+             try { (recognitionRef.current as any).stop() } catch {}
+           }
+        }
       }
 
       recognitionRef.current = recognition
     }
-  }, [])
+  }, [isListening]) // Add isListening so onend has fresh access to the current state
 
   function toggleListening() {
-    if (!recognitionRef.current) return
+    if (!recognitionRef.current) {
+      useNotificationStore.getState().addNotification('warning', 'Speech recognition is not supported in this browser.')
+      return
+    }
+    
     if (isListening) {
-      (recognitionRef.current as { stop: () => void }).stop()
+      setIsListening(false)
+      setTimeout(() => {
+        try { (recognitionRef.current as any).stop() } catch {}
+      }, 10)
     } else {
-      (recognitionRef.current as { start: () => void }).start()
       setIsListening(true)
+      setTimeout(() => {
+        try { (recognitionRef.current as any).start() } catch {
+          setIsListening(false)
+          useNotificationStore.getState().addNotification('error', 'Failed to start speech recognition.')
+        }
+      }, 10)
     }
     setTimeout(() => {
       textareaRef.current?.focus()
-    }, 10)
+    }, 50)
   }
 
   async function handleSend() {
