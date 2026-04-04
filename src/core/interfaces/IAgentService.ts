@@ -8,7 +8,7 @@ export type AgentStatus = 'idle' | 'planning' | 'awaiting_confirmation' | 'execu
 export interface AgentTool {
   name: string
   description: string
-  execute(input: Record<string, any>): Promise<any>
+  execute(input: Record<string, unknown>): Promise<unknown>
 }
 
 export interface AgentContext {

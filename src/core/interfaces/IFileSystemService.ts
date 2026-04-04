@@ -3,7 +3,7 @@
 // Contract that all FS implementations must satisfy
 // ============================================================
 
-import type { FileNode, FileEntry } from '@/infrastructure/fs/types'
+import type { FileNode } from '@/infrastructure/fs/types'
 
 export interface IFileSystemService {
   // Project management

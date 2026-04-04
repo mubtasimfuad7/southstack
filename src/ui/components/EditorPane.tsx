@@ -3,10 +3,10 @@
 // ============================================================
 
 import { useEffect, useRef, useCallback } from 'react'
-import MonacoEditor, { DiffEditor } from '@monaco-editor/react'
-import { X, Circle, Check, ShieldAlert, Cpu, Zap } from 'lucide-react'
+import MonacoEditor from '@monaco-editor/react'
+import { X, Circle, Cpu, Zap } from 'lucide-react'
 import type { editor } from 'monaco-editor'
-import { useEditorStore, useAgentStore } from '@/application/store'
+import { useEditorStore } from '@/application/store'
 import { editorService } from '@/core/services/EditorService'
 import type { EditorTab } from '@/core/interfaces/IEditorService'
 

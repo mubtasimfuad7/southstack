@@ -87,6 +87,10 @@ export class AgentService implements IAgentService {
   getPlan(): AgentStep[] { return this.plan }
   getCurrentStep(): AgentStep | null { return this.plan[this.currentStepIndex] ?? null }
 
+  setModelProvider(provider: ModelProvider): void {
+    this.modelProvider = provider
+  }
+
   // ──────────────────────────────────────────────────────────
   // Tool registration
   // ──────────────────────────────────────────────────────────
@@ -125,7 +129,7 @@ export class AgentService implements IAgentService {
   private async _runLoop(initialPrompt: string): Promise<void> {
     const MAX_ITERATIONS = 15
     let iterations = 0
-    let lastResult: any = null
+    let lastResult: unknown = null
     this.history.push({ role: 'user', content: initialPrompt })
 
     // 1. Initial Context Collection
@@ -155,7 +159,7 @@ export class AgentService implements IAgentService {
       
       let rawResponse = ''
       // 2. LLM Generation
-      rawResponse = await this.modelProvider.generateStream(messages as any, (token) => {
+      rawResponse = await this.modelProvider.generateStream(messages as unknown as import("@/core/interfaces/IModelProvider").ChatMessage[], (token) => {
         this._emit('assistant', token)
       })
       
@@ -313,7 +317,7 @@ export class AgentService implements IAgentService {
 Respond in plain text (No JSON).`
         
         messages.push({ role: 'user', content: debriefPrompt })
-        await this.modelProvider.generateStream(messages as any, (token) => {
+        await this.modelProvider.generateStream(messages as unknown as import('@/core/interfaces/IModelProvider').ChatMessage[], (token) => {
           this._emit('assistant', token)
         })
         
@@ -400,7 +404,7 @@ Available Tools: ${toolNames.join(', ')}
       }
       
       return parsed
-    } catch (e) {
+    } catch {
       // Try to "repair" common LLM JSON errors (unescaped newlines in strings)
       try {
         const repaired = cleanJson.replace(/"([^"]*)"/g, (match, p1) => {

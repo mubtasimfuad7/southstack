@@ -6,13 +6,14 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Bot, Loader2, CheckCircle2, XCircle,
   Clock, Zap, ChevronDown, ChevronUp,
-  Square, Copy, Check, Mic, MicOff
+  Square, Copy, Check, Mic, MicOff, MoreHorizontal, Cpu
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useAgentStore } from '@/application/store'
+import { useP2PStore } from '@/application/p2pStore'
 import type { AgentStatus, AgentStep } from '@/core/interfaces/IAgentService'
 
 function StatusBadge({ status }: { status: AgentStatus }) {
@@ -163,24 +164,39 @@ function ChatMessage({ role, content }: ChatMessageProps) {
 
 export function AgentPanel() {
   const {
-    status, plan, messages, modelReady, modelProgress, modelProgressText, setNeedsConfirmation
+    status, plan, messages, modelReady, modelProgress, modelProgressText
   } = useAgentStore()
 
   const [input, setInput] = useState('')
   const [showPlan, setShowPlan] = useState(true)
   const [isListening, setIsListening] = useState(false)
+  const [showProviderMenu, setShowProviderMenu] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<unknown>(null)
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const providerMenuRef = useRef<HTMLDivElement>(null)
 
   const isRunning = status !== 'idle' && status !== 'done' && status !== 'error' && status !== 'awaiting_confirmation'
   const isAwaitingApproval = status === 'awaiting_confirmation'
   const isActuallyBusy = isRunning && !isAwaitingApproval
   const prevIsRunning = useRef(isRunning)
   const [elapsed, setElapsed] = useState(0)
+
+  const activeProviderId = useP2PStore(s => s.activeProviderId)
+  const peers = useP2PStore(s => s.peers)
+  const selfPeerId = useP2PStore(s => s.selfPeerId)
+  const setActiveProvider = useP2PStore(s => s.setActiveProvider)
+  const connectedPeers = peers.filter((peer) => peer.peerId !== selfPeerId && peer.models.length > 0)
+  const activePeer = peers.find((peer) => peer.peerId === activeProviderId) ?? null
+  const isPeerSelectable = (peer: { transportReady: boolean; models: string[]; availability: string }) =>
+    peer.transportReady && peer.models.length > 0 && peer.availability !== 'offline'
+  const providerLabel = activePeer
+    ? `${activePeer.models[0] || 'Remote model'} · ${isPeerSelectable(activePeer) ? activePeer.availability : (activePeer.transportReady ? 'syncing' : 'transport pending')}`
+    : 'Local model'
 
   useEffect(() => {
     let int: ReturnType<typeof setInterval>
@@ -191,6 +207,17 @@ export function AgentPanel() {
     prevIsRunning.current = (isRunning || isAwaitingApproval)
     return () => clearInterval(int)
   }, [isRunning, isAwaitingApproval])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!providerMenuRef.current?.contains(event.target as Node)) {
+        setShowProviderMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const formatElapsed = (s: number) => {
     const mins = Math.floor(s / 60)
@@ -247,8 +274,54 @@ export function AgentPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // Hot-swap Model Provider when activeProviderId changes
+  useEffect(() => {
+    if (!agentService) return
+
+    async function updateProvider() {
+      if (activeProviderId) {
+        const selectedPeer = useP2PStore.getState().peers.find((peer) => peer.peerId === activeProviderId)
+        const activeRouter = useP2PStore.getState().activeRouter
+        const { p2pSession } = await import('@/infrastructure/p2p/P2PSession')
+        const { PeerModelProvider } = await import('@/execution/llm/PeerModelProvider')
+
+        if (!selectedPeer || !isPeerSelectable(selectedPeer) || selectedPeer.availability !== 'available') {
+          const { localModelProvider } = await import('@/execution/llm/LocalModelProvider')
+          agentService.setModelProvider(localModelProvider)
+          useP2PStore.getState().setActiveProvider(null)
+          useAgentStore.getState().addMessage('assistant', '⚠ Selected peer is not ready for inference yet. Staying on the local model.')
+          return
+        }
+
+        if (activeRouter) {
+          const selectedModelId = selectedPeer.models[0] ?? 'Remote model'
+          const provider = new PeerModelProvider(activeRouter, p2pSession.getManager(), selectedModelId, activeProviderId)
+          try {
+            await provider.initialize()
+            agentService.setModelProvider(provider)
+            useAgentStore.getState().addMessage('assistant', `✅ Switched to distributed inference via peer: \`${activeProviderId.slice(0, 12)}...\``)
+          } catch (err) {
+            console.error('Failed to init peer provider', err)
+            const { localModelProvider } = await import('@/execution/llm/LocalModelProvider')
+            agentService.setModelProvider(localModelProvider)
+            useP2PStore.getState().setActiveProvider(null)
+            useAgentStore.getState().addMessage(
+              'assistant',
+              `⚠ Failed to initialize peer inference: ${err instanceof Error ? err.message : 'unknown error'}. Falling back to the local model.`,
+            )
+          }
+        }
+      } else {
+        const { localModelProvider } = await import('@/execution/llm/LocalModelProvider')
+        agentService.setModelProvider(localModelProvider)
+      }
+    }
+    updateProvider()
+  }, [activeProviderId, agentService])
+
   // Speech Recognition Setup
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition()
@@ -256,6 +329,7 @@ export function AgentPanel() {
       recognition.interimResults = true
       recognition.lang = 'en-US'
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onresult = (event: any) => {
         setIsSpeaking(true)
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
@@ -285,6 +359,7 @@ export function AgentPanel() {
         setInterimTranscript('')
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error)
         setIsListening(false)
@@ -299,9 +374,9 @@ export function AgentPanel() {
   function toggleListening() {
     if (!recognitionRef.current) return
     if (isListening) {
-      recognitionRef.current.stop()
+      (recognitionRef.current as { stop: () => void }).stop()
     } else {
-      recognitionRef.current.start()
+      (recognitionRef.current as { start: () => void }).start()
       setIsListening(true)
     }
     setTimeout(() => {
@@ -312,7 +387,7 @@ export function AgentPanel() {
   async function handleSend() {
     if (!input.trim() || !agentService) return
     if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop()
+      (recognitionRef.current as { stop: () => void }).stop()
       setIsListening(false)
     }
     const prompt = input.trim()
@@ -332,11 +407,86 @@ export function AgentPanel() {
     <div className="flex flex-col h-full bg-panel border-l border-border">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div className={`w-1.5 h-1.5 rounded-full ${modelReady ? 'bg-success animate-pulse-slow' : 'bg-warning animate-pulse'}`} />
-          <span className="text-xs font-semibold text-text-secondary uppercase tracking-widest">AI Agent</span>
+          <div className="min-w-0">
+            <span className="text-xs font-semibold text-text-secondary uppercase tracking-widest">AI Agent</span>
+            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-text-dim truncate">
+              <Cpu size={10} />
+              <span className="truncate">{providerLabel}</span>
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative" ref={providerMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowProviderMenu((v) => !v)}
+              className="p-1.5 rounded-lg border border-border bg-surface-300 text-text-dim hover:text-text-primary hover:border-primary-500/40 transition-colors"
+              title="Choose model provider"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+            {showProviderMenu && (
+              <div className="absolute right-0 top-9 z-20 w-72 rounded-xl border border-border bg-surface-200 shadow-2xl p-2">
+                <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-text-dim">
+                  Model Provider
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveProvider(null)
+                    setShowProviderMenu(false)
+                  }}
+                  className={`w-full flex items-start justify-between gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                    activeProviderId == null ? 'bg-primary-500/15 border border-primary-400/20' : 'hover:bg-surface-300 border border-transparent'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-text-primary">Local model</div>
+                    <div className="text-[10px] text-text-dim truncate">Use on-device inference for chat, tasks, and tools</div>
+                  </div>
+                  {activeProviderId == null && <Check size={12} className="text-success flex-shrink-0 mt-0.5" />}
+                </button>
+                {connectedPeers.length > 0 && (
+                  <div className="mt-1 pt-1 border-t border-border/70">
+                    {connectedPeers.map((peer) => (
+                      <button
+                        key={peer.peerId}
+                        type="button"
+                        onClick={() => {
+                          if (!isPeerSelectable(peer) || peer.availability !== 'available') return
+                          setActiveProvider(peer.peerId)
+                          setShowProviderMenu(false)
+                        }}
+                        disabled={!isPeerSelectable(peer) || peer.availability !== 'available'}
+                        className={`w-full flex items-start justify-between gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                          activeProviderId === peer.peerId ? 'bg-primary-500/15 border border-primary-400/20' : 'hover:bg-surface-300 border border-transparent'
+                        } ${!isPeerSelectable(peer) || peer.availability !== 'available' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-text-primary truncate">
+                            {peer.models[0] || 'Remote model'}
+                          </div>
+                          <div className="text-[10px] text-text-dim truncate">
+                            {peer.peerId} · {isPeerSelectable(peer)
+                              ? peer.availability
+                              : (peer.transportReady ? 'syncing model info' : 'transport not ready')}
+                          </div>
+                        </div>
+                        {activeProviderId === peer.peerId && <Check size={12} className="text-success flex-shrink-0 mt-0.5" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {connectedPeers.length === 0 && (
+                  <div className="px-3 py-2 text-[10px] text-text-dim">
+                    No connected peer models available yet.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {elapsed > 0 && (
             <div className={`px-1.5 py-0.5 rounded text-[10px] font-mono border ${isRunning ? 'bg-primary-500/10 text-primary-300 border-primary-500/30' : 'bg-surface-300 text-text-dim border-border'}`}>
               {formatElapsed(elapsed)}

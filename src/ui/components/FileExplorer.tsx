@@ -166,13 +166,13 @@ export function FileExplorer() {
   async function handleRefresh() {
     // Actually read the tree back from WebContainer if it's booted
     try {
-      const wc = await runtimeService.boot()
+      await runtimeService.boot()
       // Since fs.readdir is standard, we could build the tree from wc,
       // but for now just refresh the UI tree against the IDB model which 
       // is the SSOT for the UI right now.
       const tree = await fileSystemService.getTree()
       setProjectRoot(tree)
-    } catch (e) {
+    } catch {
       // fallback
       const tree = await fileSystemService.getTree()
       setProjectRoot(tree)

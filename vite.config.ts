@@ -2,11 +2,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import path from 'path'
+import { embeddedSignalingPlugin } from './dev/embeddedSignaling'
 
 export default defineConfig({
   plugins: [
     react(),
-    basicSsl()
+    basicSsl(),
+    embeddedSignalingPlugin(),
   ],
   resolve: {
     alias: {
@@ -29,7 +31,11 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@webcontainer/api', '@mlc-ai/web-llm'],
+    exclude: [
+      '@webcontainer/api',
+      '@mlc-ai/web-llm',
+      'yjs',
+    ],
   },
   worker: {
     format: 'es',

@@ -58,7 +58,6 @@ export interface TransportLayer {
  * Each peer runs a local model and shares generation requests
  * via the TransportLayer. NOT IMPLEMENTED.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export interface PeerModelProvider extends ModelProvider {
   transport: TransportLayer
   requestFromPeer(peerId: string, messages: ChatMessage[]): Promise<string>

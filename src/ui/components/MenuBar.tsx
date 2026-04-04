@@ -2,7 +2,7 @@
 // UI LAYER: MenuBar — top bar with project open/sync actions
 // ============================================================
 
-import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, ShieldAlert, ShieldCheck, Network } from 'lucide-react'
 import { useFSStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'
@@ -10,11 +10,13 @@ import { editorService } from '@/core/services/EditorService'
 interface MenuBarProps {
   onToggleAgent: () => void
   onToggleTerminal: () => void
+  onToggleP2P: () => void
   agentPanelOpen: boolean
   terminalOpen: boolean
+  p2pPanelOpen: boolean
 }
 
-export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, terminalOpen }: MenuBarProps) {
+export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleP2P, agentPanelOpen, terminalOpen, p2pPanelOpen }: MenuBarProps) {
   const { setProjectRoot, setLoading, setSyncing, setHasLocalAccess, isSyncing, isLoading } = useFSStore()
 
   async function handleOpenProject() {
@@ -128,6 +130,17 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, termi
         >
           <Bot size={13} />
           AI Agent
+        </button>
+
+        <button
+          onClick={onToggleP2P}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
+            p2pPanelOpen ? 'text-green-400 bg-green-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+          }`}
+          title="Toggle P2P Network panel"
+        >
+          <Network size={13} />
+          P2P
         </button>
 
         <div className="w-px h-4 bg-border mx-1" />

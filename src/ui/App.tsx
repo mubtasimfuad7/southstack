@@ -11,15 +11,21 @@ import { FileExplorer } from './components/FileExplorer'
 import { EditorPane } from './components/EditorPane'
 import { TerminalPanel } from './components/TerminalPanel'
 import { AgentPanel } from './components/AgentPanel'
+import { P2PPanel } from './components/P2PPanel'
 import { HorizontalSplit, VerticalSplit } from './components/SplitPane'
 import { useTerminalStore, useFSStore } from '@/application/store'
 import { runtimeService } from '@/core/services/RuntimeService'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { RestorePrompt } from './components/RestorePrompt'
+import { ToastContainer } from './components/Toast'
 import { loadMeta } from '@/infrastructure/fs/idb-storage'
 
 export function App() {
   const [agentPanelOpen, setAgentPanelOpen] = useState(true)
+  const [p2pPanelOpen, setP2PPanelOpen] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.has('roomCode') || params.has('signal') || params.has('signalingUrl')
+  })
   const [showRestore, setShowRestore] = useState(false)
   const { isOpen: terminalOpen, setOpen: setTerminalOpen } = useTerminalStore()
   const { projectRoot } = useFSStore()
@@ -98,8 +104,10 @@ export function App() {
       <MenuBar
         onToggleAgent={() => setAgentPanelOpen((v) => !v)}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        onToggleP2P={() => setP2PPanelOpen((v) => !v)}
         agentPanelOpen={agentPanelOpen}
         terminalOpen={terminalOpen}
+        p2pPanelOpen={p2pPanelOpen}
       />
 
       {showRestore && (
@@ -117,9 +125,13 @@ export function App() {
           right={
             <HorizontalSplit
               left={centerColumn}
-              right={agentPanelOpen ? <AgentPanel /> : null}
+              right={
+                <>
+                  {agentPanelOpen && <AgentPanel />}
+                </>
+              }
               primaryPane="right"
-              initialRightWidth={400}
+              initialRightWidth={agentPanelOpen ? 400 : 0}
               minRight={280}
               maxRight={1200}
             />
@@ -129,7 +141,18 @@ export function App() {
           maxLeft={450}
         />
       </div>
+
+      {/* P2P Popup Modal */}
+      {p2pPanelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="relative w-full max-w-[440px] h-[600px] max-h-[80vh] shadow-2xl rounded-xl border border-border overflow-hidden bg-surface-300">
+            <P2PPanel onClose={() => setP2PPanelOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Global Notifications */}
+      <ToastContainer />
     </div>
   )
 }
-

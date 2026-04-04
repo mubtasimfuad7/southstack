@@ -240,11 +240,13 @@ export function buildAgentTools(): AgentTool[] {
         try {
           // Dynamic import to keep main bundle small
           const { loadPyodide } = await import('pyodide')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const pyodide = await (window as any)._pyodidePromise || ( (window as any)._pyodidePromise = loadPyodide({
             indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/' 
           }))
           
-          const result = await (await pyodide).runPythonAsync(code)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const result = await (await pyodide as any).runPythonAsync(code)
           return { stdout: String(result), stderr: '', exitCode: 0 }
         } catch (err) {
           return { stdout: '', stderr: String(err), exitCode: 1 }

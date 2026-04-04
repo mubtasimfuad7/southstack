@@ -9,7 +9,7 @@ import type { ModelProvider, ModelGenerateOptions, ChatMessage } from '@/core/in
 // We use web-llm's MLCEngine directly in a worker via postMessage bridge.
 // This file is the MAIN THREAD PROXY — it talks to the worker.
 
-export const DEFAULT_MODEL = 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC'
+export const DEFAULT_MODEL = 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC'
 
 export class LocalModelProvider implements ModelProvider {
   private worker: Worker | null = null
@@ -18,6 +18,10 @@ export class LocalModelProvider implements ModelProvider {
   private modelName = DEFAULT_MODEL
   private pendingResolvers: Map<string, { resolve: (v: string) => void; reject: (e: Error) => void; onToken?: (t: string) => void }> = new Map()
   private progressListeners: Set<(progress: number, text: string) => void> = new Set()
+  private busy = false
+  private activeRequestId: string | null = null
+  private busyListeners: Set<(busy: boolean) => void> = new Set()
+  private readyListeners: Set<(ready: boolean) => void> = new Set()
 
   async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -39,7 +43,19 @@ export class LocalModelProvider implements ModelProvider {
   ): Promise<string> {
     if (!this.worker || !this.ready) throw new Error('Model not initialized')
 
+    if (this.activeRequestId) {
+      const previous = this.pendingResolvers.get(this.activeRequestId)
+      this.abort()
+      previous?.reject(new Error('Generation preempted by a newer local request'))
+      this.pendingResolvers.delete(this.activeRequestId)
+      this.activeRequestId = null
+      this._setBusy(false)
+    }
+
     const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    this.activeRequestId = requestId
+    this._setBusy(true)
+
     return new Promise((resolve, reject) => {
       this.pendingResolvers.set(requestId, { resolve, reject, onToken })
       this.worker!.postMessage({
@@ -58,6 +74,20 @@ export class LocalModelProvider implements ModelProvider {
     }
   }
 
+  isBusyGenerating(): boolean {
+    return this.busy
+  }
+
+  onBusyChange(cb: (busy: boolean) => void): () => void {
+    this.busyListeners.add(cb)
+    return () => this.busyListeners.delete(cb)
+  }
+
+  onReadyChange(cb: (ready: boolean) => void): () => void {
+    this.readyListeners.add(cb)
+    return () => this.readyListeners.delete(cb)
+  }
+
   isReady(): boolean { return this.ready }
   getModelName(): string { return this.modelName }
   getLoadProgress(): number { return this.loadProgress }
@@ -65,7 +95,9 @@ export class LocalModelProvider implements ModelProvider {
   dispose(): void {
     this.worker?.terminate()
     this.worker = null
-    this.ready = false
+    this._setReady(false)
+    this.activeRequestId = null
+    this._setBusy(false)
   }
 
   onLoadProgress(cb: (progress: number, text: string) => void): () => void {
@@ -80,7 +112,7 @@ export class LocalModelProvider implements ModelProvider {
   ): void {
     switch (data.type) {
       case 'ready':
-        this.ready = true
+        this._setReady(true)
         initResolve?.()
         break
 
@@ -99,6 +131,10 @@ export class LocalModelProvider implements ModelProvider {
         const resolver = this.pendingResolvers.get(data.requestId as string)
         if (resolver) {
           this.pendingResolvers.delete(data.requestId as string)
+          if (this.activeRequestId === data.requestId) {
+            this.activeRequestId = null
+            this._setBusy(false)
+          }
           resolver.resolve(data.text as string)
         }
         break
@@ -108,12 +144,31 @@ export class LocalModelProvider implements ModelProvider {
         const resolver = this.pendingResolvers.get(data.requestId as string)
         if (resolver) {
           this.pendingResolvers.delete(data.requestId as string)
+          if (this.activeRequestId === data.requestId) {
+            this.activeRequestId = null
+            this._setBusy(false)
+          }
           resolver.reject(new Error(data.error as string))
+        }
+        if (!resolver) {
+          this._setReady(false)
         }
         initReject?.(new Error(data.error as string))
         break
       }
     }
+  }
+
+  private _setBusy(next: boolean): void {
+    if (this.busy === next) return
+    this.busy = next
+    this.busyListeners.forEach((listener) => listener(next))
+  }
+
+  private _setReady(next: boolean): void {
+    if (this.ready === next) return
+    this.ready = next
+    this.readyListeners.forEach((listener) => listener(next))
   }
 }
 
