@@ -145,7 +145,7 @@ export function App() {
       {/* P2P Popup Modal */}
       {p2pPanelOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="relative w-full max-w-[440px] h-[600px] max-h-[80vh] shadow-2xl rounded-xl border border-border overflow-hidden bg-surface-300">
+          <div className="relative w-full max-w-[600px] h-[700px] max-h-[85vh] shadow-2xl rounded-xl border border-border overflow-hidden bg-surface-300">
             <P2PPanel onClose={() => setP2PPanelOpen(false)} />
           </div>
         </div>
