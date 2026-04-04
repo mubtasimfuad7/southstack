@@ -157,6 +157,13 @@ export class ModelRouter {
             break
           }
 
+          if ((message as any).type === 'inference_request') {
+            currentRequest = message as InferenceRequest
+          } else {
+            console.warn(`[P2P] Unexpected message type in inference stream: ${(message as any).type}`)
+            continue
+          }
+
           console.log(`[P2P] Received inference request ${currentRequest.requestId} from ${remotePeerId}`)
 
           await writer.write({
