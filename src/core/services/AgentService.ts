@@ -119,8 +119,8 @@ export class AgentService implements IAgentService {
         await this._sleep(200)
       }
 
-      const toolNames = this.getTools().map((t) => t.name)
-      const context = contextBuilder.buildWithHistory(this.history, toolNames)
+      const toolDefinitions = this.getTools().map((t) => ({ name: t.name, description: t.description }))
+      const context = contextBuilder.buildWithHistory(this.history, toolDefinitions)
 
       let rawResponse = ''
       this._setStatus(iterations === 0 ? 'planning' : 'executing')
@@ -174,7 +174,7 @@ export class AgentService implements IAgentService {
       // Execute the action
       const tool = this.tools.get(agentResponse.action.tool)
       if (!tool) {
-        const errorMsg = `Tool "${agentResponse.action.tool}" is not available. Choose from: ${toolNames.join(', ')}`
+        const errorMsg = `Tool "${agentResponse.action.tool}" is not available. Choose from: ${Array.from(this.tools.keys()).join(', ')}`
         this.history.push({ role: 'user', content: errorMsg })
         iterations++
         continue

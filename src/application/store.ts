@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { FileNode } from '@/infrastructure/fs/types'
 import type { EditorTab } from '@/core/interfaces/IEditorService'
 import type { AgentStatus, AgentStep } from '@/core/interfaces/IAgentService'
+import type { PeerStatus, RootTask, Subtask, ToolLogEntry } from '@/core/tasks/taskTypes'
 
 // ──────────────────────────────────────────────────────────
 // FileSystem Store
@@ -140,6 +141,8 @@ interface AgentState {
   setPlan: (steps: AgentStep[]) => void
   addMessage: (role: 'user' | 'assistant', content: string) => void
   appendToLastAssistantMessage: (token: string) => void
+  isDistributed: boolean
+  setDistributed: (v: boolean) => void
   setModelReady: (v: boolean) => void
   setModelProgress: (p: number, text: string) => void
   setAgentPanelOpen: (v: boolean) => void
@@ -173,7 +176,84 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
       return { messages }
     }),
+  isDistributed: false,
+  setDistributed: (isDistributed) => set({ isDistributed }),
   setModelReady: (v) => set({ modelReady: v }),
   setModelProgress: (p, text) => set({ modelProgress: p, modelProgressText: text }),
   setAgentPanelOpen: (v) => set({ agentPanelOpen: v }),
+}))
+
+// ──────────────────────────────────────────────────────────
+// Peer Store (P2P)
+// ──────────────────────────────────────────────────────────
+
+interface PeerStoreState {
+  localPeerId: string
+  localState: string
+  acceptsRemoteTasks: boolean
+  peers: Map<string, PeerStatus>
+  networkConnected: boolean
+  setLocalPeerId: (id: string) => void
+  setLocalState: (s: string) => void
+  setAcceptsRemoteTasks: (v: boolean) => void
+  setPeers: (peers: Map<string, PeerStatus>) => void
+  setNetworkConnected: (v: boolean) => void
+}
+
+export const usePeerStore = create<PeerStoreState>((set) => ({
+  localPeerId: '',
+  localState: 'model_loading',
+  acceptsRemoteTasks: true,
+  peers: new Map(),
+  networkConnected: false,
+  setLocalPeerId: (id) => set({ localPeerId: id }),
+  setLocalState: (s) => set({ localState: s }),
+  setAcceptsRemoteTasks: (v) => set({ acceptsRemoteTasks: v }),
+  setPeers: (peers) => set({ peers }),
+  setNetworkConnected: (v) => set({ networkConnected: v }),
+}))
+
+// ──────────────────────────────────────────────────────────
+// P2P Task Store
+// ──────────────────────────────────────────────────────────
+
+interface P2PTaskState {
+  rootTask: RootTask | null
+  subtasks: Map<string, Subtask>
+  remoteSubtask: Subtask | null     // subtask this peer is running for another
+  setRootTask: (task: RootTask | null) => void
+  setSubtasks: (subtasks: Map<string, Subtask>) => void
+  setRemoteSubtask: (s: Subtask) => void
+  clearRemoteSubtask: () => void
+}
+
+export const useP2PTaskStore = create<P2PTaskState>((set) => ({
+  rootTask: null,
+  subtasks: new Map(),
+  remoteSubtask: null,
+  setRootTask: (task) => set({ rootTask: task }),
+  setSubtasks: (subtasks) => set({ subtasks }),
+  setRemoteSubtask: (s) => set({ remoteSubtask: s }),
+  clearRemoteSubtask: () => set({ remoteSubtask: null }),
+}))
+
+// ──────────────────────────────────────────────────────────
+// Tool Log Store
+// ──────────────────────────────────────────────────────────
+
+const MAX_LOG_ENTRIES = 100
+
+interface ToolLogState {
+  entries: ToolLogEntry[]
+  addEntry: (entry: ToolLogEntry) => void
+  clearLog: () => void
+}
+
+export const useToolLogStore = create<ToolLogState>((set) => ({
+  entries: [],
+  addEntry: (entry) =>
+    set((state) => ({
+      entries: [entry, ...state.entries].slice(0, MAX_LOG_ENTRIES),
+    })),
+  clearLog: () => set({ entries: [] }),
 }))

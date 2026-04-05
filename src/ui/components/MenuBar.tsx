@@ -2,7 +2,7 @@
 // UI LAYER: MenuBar — top bar with project open/sync actions
 // ============================================================
 
-import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck, Network } from 'lucide-react'
 import { useFSStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'
@@ -96,9 +96,8 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, termi
 
         <button
           onClick={onToggleTerminal}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
-            terminalOpen ? 'text-accent-400 bg-accent-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
-          }`}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${terminalOpen ? 'text-accent-400 bg-accent-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+            }`}
           title="Toggle terminal"
         >
           <Terminal size={13} />
@@ -107,13 +106,12 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, termi
 
         <button
           onClick={onToggleAgent}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
-            agentPanelOpen ? 'text-primary-300 bg-primary-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
-          }`}
-          title="Toggle AI Agent panel"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${agentPanelOpen ? 'text-primary-300 bg-primary-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+            }`}
+          title="Toggle AI & P2P Panel"
         >
           <Bot size={13} />
-          AI Agent
+          AI & P2P
         </button>
 
         <div className="w-px h-4 bg-border mx-1" />

@@ -9,7 +9,7 @@ import type { ModelProvider, ModelGenerateOptions, ChatMessage } from '@/core/in
 // We use web-llm's MLCEngine directly in a worker via postMessage bridge.
 // This file is the MAIN THREAD PROXY — it talks to the worker.
 
-export const DEFAULT_MODEL = 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC'
+export const DEFAULT_MODEL = 'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC'
 
 export class LocalModelProvider implements ModelProvider {
   private worker: Worker | null = null

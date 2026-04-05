@@ -37,7 +37,7 @@ export class ContextBuilder {
     this.recentTerminalOutput = ''
   }
 
-  buildWithHistory(history: { role: string; content: string }[], availableTools: string[]): BuiltContext {
+  buildWithHistory(history: { role: string; content: string }[], availableTools: {name: string, description: string}[]): BuiltContext {
     const systemPrompt = this._buildSystemPrompt(availableTools)
     const contextParts: string[] = []
 
@@ -91,7 +91,7 @@ export class ContextBuilder {
     return { messages, tokenEstimate }
   }
 
-  build(userPrompt: string, availableTools: string[]): BuiltContext {
+  build(userPrompt: string, availableTools: {name: string, description: string}[]): BuiltContext {
     const systemPrompt = this._buildSystemPrompt(availableTools)
     const contextParts: string[] = []
 
@@ -125,8 +125,8 @@ export class ContextBuilder {
     return { messages, tokenEstimate }
   }
 
-  private _buildSystemPrompt(tools: string[]): string {
-    const toolList = tools.join(', ')
+  private _buildSystemPrompt(tools: {name: string, description: string}[]): string {
+    const toolList = tools.map((t) => `- **${t.name}**: ${t.description}`).join('\n')
     return `You are Southstack AI, a Senior Software Engineer assistant. You are methodical, precise, and favor action over talk.
     
 Your goal is to build, debug, and maintain complex projects. You have full access to the project filesystem and terminal.
@@ -151,7 +151,8 @@ Rules:
 }
 \`\`\`
 
-Available tools: ${toolList}`
+Available tools:
+${toolList}`
   }
 }
 

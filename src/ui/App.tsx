@@ -12,14 +12,14 @@ import { EditorPane } from './components/EditorPane'
 import { TerminalPanel } from './components/TerminalPanel'
 import { AgentPanel } from './components/AgentPanel'
 import { HorizontalSplit, VerticalSplit } from './components/SplitPane'
-import { useTerminalStore, useFSStore } from '@/application/store'
+import { useTerminalStore, useFSStore, useAgentStore } from '@/application/store'
 import { runtimeService } from '@/core/services/RuntimeService'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { RestorePrompt } from './components/RestorePrompt'
 import { loadMeta } from '@/infrastructure/fs/idb-storage'
 
 export function App() {
-  const [agentPanelOpen, setAgentPanelOpen] = useState(true)
+  const { agentPanelOpen, setAgentPanelOpen } = useAgentStore()
   const [showRestore, setShowRestore] = useState(false)
   const { isOpen: terminalOpen, setOpen: setTerminalOpen } = useTerminalStore()
   const { projectRoot } = useFSStore()
@@ -42,7 +42,7 @@ export function App() {
     async function checkSession() {
       // Check 1: Do we have a local OS handle?
       const handle = await loadMeta('rootDirHandle')
-      
+
       // Check 2: Do we have any files in IndexedDB (virtual project)?
       const tree = await fileSystemService.getTree()
       const hasFiles = tree && tree.children && tree.children.length > 0
@@ -58,13 +58,13 @@ export function App() {
     try {
       // 1. Try to restore the OS handle (needs user permission click)
       const tree = await fileSystemService.restoreSession()
-      
+
       // 2. Fallback: If no OS handle or permission denied, just load from IDB
       if (!tree) {
         const idbTree = await fileSystemService.getTree()
         useFSStore.getState().setProjectRoot(idbTree)
       }
-      
+
       setShowRestore(false)
     } catch (err) {
       console.error('Restore failed:', err)
@@ -92,11 +92,13 @@ export function App() {
     <EditorPane />
   )
 
+  const rightPanels = agentPanelOpen ? <AgentPanel /> : null
+
   return (
     <div className="flex flex-col h-screen w-screen bg-surface-400 overflow-hidden">
       {/* Top menu bar */}
       <MenuBar
-        onToggleAgent={() => setAgentPanelOpen((v) => !v)}
+        onToggleAgent={() => setAgentPanelOpen(!agentPanelOpen)}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
         agentPanelOpen={agentPanelOpen}
         terminalOpen={terminalOpen}
@@ -111,23 +113,29 @@ export function App() {
       )}
 
       {/* Main area */}
-      <div className="flex flex-1 overflow-hidden min-h-0">
+      <div className="flex-1 relative overflow-hidden min-h-0">
         <HorizontalSplit
           left={<FileExplorer />}
-          right={
-            <HorizontalSplit
-              left={centerColumn}
-              right={agentPanelOpen ? <AgentPanel /> : null}
-              initialLeftWidth={800}
-              minLeft={400}
-            />
-          }
+          right={centerColumn}
           initialLeftWidth={260}
           minLeft={180}
           maxLeft={450}
         />
+
+        {/* Centered Large Command Center Overlay */}
+        {agentPanelOpen && (
+          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in transition-all">
+            <div 
+              className="w-[90%] h-[90%] bg-panel border border-border shadow-[0_32px_64px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden flex animate-slide-up relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AgentPanel />
+            </div>
+            {/* Click outside to close (optional but user might like it, though they have X) */}
+            <div className="absolute inset-0 -z-10" onClick={() => setAgentPanelOpen(false)} />
+          </div>
+        )}
       </div>
     </div>
   )
 }
-
