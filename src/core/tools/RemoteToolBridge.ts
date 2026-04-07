@@ -17,12 +17,15 @@ class RemoteToolBridge {
 
   startHosting(localPeerId: string): void {
     if (this.unsub) return  // already hosting
+    
+    console.log(`[RemoteToolBridge] Starting tool host on ${localPeerId}`)
 
     this.unsub = messageBus.on<ToolRequestPayload>('tool/request', async (msg) => {
       // Only handle requests directed to us
       if (msg.toPeerId && msg.toPeerId !== localPeerId) return
 
       const { requestId, tool, args, subtaskId, workerPeerId } = msg.payload
+      console.log(`[RemoteToolBridge] Received tool/request from ${workerPeerId}: ${tool}`, { requestId, subtaskId })
 
       try {
         const result = await toolExecutor.execute(
@@ -30,15 +33,18 @@ class RemoteToolBridge {
           args as Record<string, unknown>,
           subtaskId,
         )
+        console.log(`[RemoteToolBridge] Executed ${tool} successfully for ${requestId}`, { resultSize: JSON.stringify(result).length })
         const response = createMessage<ToolResponsePayload>(
           'tool/response',
           localPeerId,
           { requestId, result },
           workerPeerId,
         )
-        peerNetworkManager.sendToPeer(workerPeerId, response)
+        const sent = peerNetworkManager.sendToPeer(workerPeerId, response)
+        console.log(`[RemoteToolBridge] Sent tool/response ${requestId} to ${workerPeerId}, sent=${sent}`)
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
+        console.error(`[RemoteToolBridge] Tool execution failed for ${requestId}:`, error)
         const errMsg = createMessage<ToolErrorPayload>(
           'tool/error',
           localPeerId,

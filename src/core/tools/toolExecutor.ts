@@ -67,13 +67,17 @@ class ToolExecutor {
       case 'writeFile': {
         const path = this._safePath(args.path as string)
         const content = args.content as string
+        console.log(`[ToolExecutor] writeFile ENTER: path="${path}", contentLength=${content?.length || 0}, subtask=${subtaskId}`)
         if (content === undefined) throw new Error('writeFile: missing content')
         if (fileLocks.isLocked(path) && !fileLocks.isHeldBy(path, subtaskId)) {
           throw new Error(`File "${path}" is locked by another subtask`)
         }
         fileLocks.acquireLock(path, subtaskId)
+        console.log(`[ToolExecutor] Lock acquired for ${path}`)
         await snapshots.snapshotBefore(path)
+        console.log(`[ToolExecutor] Snapshot taken, now writing ${path} (${content.length} bytes)`)
         await fileSystemService.writeFile(path, content)
+        console.log(`[ToolExecutor] writeFile SUCCESS: ${path}`)
         return { success: true, path, bytes: content.length }
       }
 

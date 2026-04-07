@@ -111,6 +111,16 @@ export interface TaskProgressPayload {
   leaseId: string
   progress: number          // 0–100
   statusText: string
+  workerThinking?: {        // Model reasoning visible to orchestrator
+    iteration: number
+    modelResponse?: string  // Last model output (first 500 chars)
+    toolCall?: {
+      tool: string
+      input: Record<string, unknown>
+    }
+    tokensGenerated?: number
+    timeElapsed?: number
+  }
 }
 
 export interface TaskResultPayload {

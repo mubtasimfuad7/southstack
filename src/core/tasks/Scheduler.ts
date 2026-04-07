@@ -20,6 +20,8 @@ type OfferResultCallback = (subtaskId: string, accepted: boolean, byPeerId: stri
 export class Scheduler {
   private localPeerId: string
   private pendingOffers = new Map<string, ReturnType<typeof setTimeout>>()  // subtaskId → timeout
+  private retryTab: Map<string, ReturnType<typeof setInterval>> = new Map()  // subtaskId → retry interval
+  private readonly RETRY_INTERVAL_MS = 5_000  // Re-check every 5 seconds if no workers available
 
   constructor(localPeerId: string) {
     this.localPeerId = localPeerId
@@ -34,6 +36,7 @@ export class Scheduler {
     onOfferResult: OfferResultCallback,
   ): void {
     const dispatchable = getDispatchableSubtasks(subtasks)
+    console.debug(`[Scheduler] Tick: ${dispatchable.length} dispatchable subtasks`);
 
     for (const subtask of dispatchable) {
       if (this.pendingOffers.has(subtask.id)) continue  // already offered
@@ -50,9 +53,24 @@ export class Scheduler {
     onOfferResult: OfferResultCallback,
   ): void {
     const workers = getRankedWorkers()
+    console.debug(`[Scheduler] Dispatching "${subtask.title}": ${workers.length} eligible workers found`);
 
     if (workers.length === 0) {
-      // No remote workers — assign to self
+      // No remote workers available — set up retry polling
+      console.debug(`[Scheduler] No workers for "${subtask.title}", enabling retry polling`);
+      if (!this.retryTab.has(subtask.id)) {
+        const interval = setInterval(() => {
+          const availableNow = getRankedWorkers()
+          if (availableNow.length > 0) {
+            console.debug(`[Scheduler] Workers available for "${subtask.title}", stopping retry polling`);
+            clearInterval(interval)
+            this.retryTab.delete(subtask.id)
+          }
+        }, this.RETRY_INTERVAL_MS)
+        this.retryTab.set(subtask.id, interval)
+      }
+      
+      // Assign to self for now (will retry if workers appear later)
       onOfferResult(subtask.id, true, this.localPeerId)
       return
     }
@@ -114,6 +132,15 @@ export class Scheduler {
       this.pendingOffers.delete(subtaskId)
     }
 
+    // Clear retry polling if accepted by remote
+    if (accepted && fromPeerId !== this.localPeerId) {
+      const retry = this.retryTab.get(subtaskId)
+      if (retry) {
+        clearInterval(retry)
+        this.retryTab.delete(subtaskId)
+      }
+    }
+
     if (!accepted) {
       leaseManager.releaseLease(subtaskId)
     }
@@ -127,5 +154,16 @@ export class Scheduler {
       clearTimeout(timeout)
       this.pendingOffers.delete(subtaskId)
     }
+    
+    const retry = this.retryTab.get(subtaskId)
+    if (retry) {
+      clearInterval(retry)
+      this.retryTab.delete(subtaskId)
+    }
+  }
+
+  destroy(): void {
+    this.retryTab.forEach(interval => clearInterval(interval))
+    this.retryTab.clear()
   }
 }

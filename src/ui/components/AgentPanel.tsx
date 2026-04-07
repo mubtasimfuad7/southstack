@@ -139,6 +139,8 @@ function SubtaskRow({ subtask }: { subtask: Subtask }) {
     failed: <XCircle size={10} className="text-error" />,
     requeued: <Search size={10} className="text-primary-400" />
   }
+  const [showWorkerThinking, setShowWorkerThinking] = useState(false)
+  
   return (
     <div className="text-[11px] bg-surface-200 p-2 rounded border border-border mb-1">
       <div className="flex items-start gap-2">
@@ -150,6 +152,33 @@ function SubtaskRow({ subtask }: { subtask: Subtask }) {
               <span className="px-1 py-0.5 bg-surface-300 rounded text-primary-300">@{subtask.assignedPeerId.split('-')[1]}</span>
               {subtask.progress !== undefined && <span>• {subtask.progress}%</span>}
               {subtask.statusText && <span className="truncate">• {subtask.statusText}</span>}
+            </div>
+          )}
+          {subtask.workerThinking && (
+            <div className="mt-2">
+              <button
+                onClick={() => setShowWorkerThinking(!showWorkerThinking)}
+                className="text-[9px] text-primary-300 hover:text-primary-400 font-mono hover:underline"
+              >
+                {showWorkerThinking ? '▼' : '▶'} Model Thinking (Iter {subtask.workerThinking.iteration})
+              </button>
+              {showWorkerThinking && (
+                <div className="mt-1 space-y-1 text-[8px]">
+                  {subtask.workerThinking.modelResponse && (
+                    <div className="bg-surface-300/50 p-1.5 rounded font-mono text-text-secondary break-words max-h-[100px] overflow-y-auto">
+                      {subtask.workerThinking.modelResponse}
+                    </div>
+                  )}
+                  {subtask.workerThinking.toolCall && (
+                    <div className="bg-warning/10 border border-warning/30 p-1 rounded">
+                      <div className="text-warning font-bold">Tool: {subtask.workerThinking.toolCall.tool}</div>
+                      <div className="text-text-dim font-mono mt-0.5">
+                        {JSON.stringify(subtask.workerThinking.toolCall.input).slice(0, 150)}...
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -304,9 +333,43 @@ export function AgentPanel() {
               )}
               {messages.map((msg) => <ChatMessage key={msg.id} role={msg.role} content={msg.content} />)}
               {(status === 'executing' || status === 'planning') && (
-                <div className="flex items-center gap-3 text-[11px] text-accent-300 animate-pulse-slow">
-                  <Loader2 size={12} className="animate-spin" />
-                  <span>{status === 'planning' ? 'Planning...' : 'Executing...'}</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 text-[11px] text-accent-300 animate-pulse-slow">
+                    <Loader2 size={12} className="animate-spin" />
+                    <span>{status === 'planning' ? 'Planning...' : 'Executing...'}</span>
+                  </div>
+                  {status === 'planning' && rootTask?.metadata?.planningProgress && (
+                    <div className="ml-4 text-[10px] text-text-dim space-y-2 p-2 bg-surface-200 rounded border border-border/50">
+                      <div className="space-y-1">
+                        <div>Tokens: {rootTask.metadata.planningProgress.tokenCount}</div>
+                        <div>Time: {(rootTask.metadata.planningProgress.elapsed / 1000).toFixed(1)}s</div>
+                        <div className="text-accent-300 font-mono text-[9px]">{rootTask.metadata.planningProgress.status}</div>
+                      </div>
+                      {rootTask.metadata.planningProgress.tokens && rootTask.metadata.planningProgress.tokens.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-border/30">
+                          <div className="text-[9px] text-text-dim mb-1">Token stream:</div>
+                          <div className="max-h-[120px] overflow-y-auto font-mono text-[8px] text-text-secondary bg-surface-300/50 p-1.5 rounded break-words leading-relaxed whitespace-pre-wrap">
+                            {rootTask.metadata.planningProgress.tokens.map((t, i) => (
+                              <span key={i}>{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {rootTask?.metadata?.planningProgress?.finished && status === 'running' && (
+                <div className="ml-4 text-[10px] text-text-dim space-y-2 p-2 bg-surface-200 rounded border border-border/50 opacity-75">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={12} className="text-success" />
+                    <span className="text-success font-mono text-[9px]">Planning Complete</span>
+                  </div>
+                  <div className="space-y-1 text-[9px]">
+                    <div>Total tokens: {rootTask.metadata.planningProgress.tokenCount}</div>
+                    <div>Total time: {(rootTask.metadata.planningProgress.elapsed / 1000).toFixed(1)}s</div>
+                    <div>{rootTask.metadata.planningProgress.status}</div>
+                  </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -352,20 +415,47 @@ export function AgentPanel() {
             {/* Mesh */}
             <div className="py-4">
               <div className="text-[10px] uppercase font-black text-text-dim mb-2">Peer Mesh ({peers.size})</div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {peers.size === 0 ? <div className="text-[10px] text-text-dim italic text-center py-4 border border-dashed border-border rounded">No common nodes found.</div> :
                   Array.from(peers.values()).map(peer => {
                     const isStale = (Date.now() - peer.lastHeartbeat) > 8000
+                    const assignedSubtasks = Array.from(subtasks.values()).filter(s => s.assignedPeerId === peer.peerId)
+                    const stateClass = isStale ? 'bg-error/20 text-error' : peer.state === 'idle' ? 'bg-success/20 text-success' : peer.state === 'busy_remote' ? 'bg-warning/20 text-warning' : 'bg-surface-300 text-text-dim'
                     return (
-                      <div key={peer.peerId} className="flex items-center justify-between p-2 rounded bg-surface-200 border border-border transition-all hover:border-border/60">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isStale ? 'bg-error' : peer.state === 'idle' ? 'bg-success' : 'bg-warning'}`} />
-                          <span className="text-[11px] font-mono text-text-secondary truncate">{peer.peerId.split('-')[1]}</span>
+                      <div key={peer.peerId} className="rounded bg-surface-200 border border-border overflow-hidden">
+                        <div className="flex items-center justify-between p-2 hover:bg-surface-300/50 transition-colors">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isStale ? 'bg-error' : peer.state === 'idle' ? 'bg-success' : 'bg-warning'}`} />
+                            <span className="text-[11px] font-mono text-text-secondary truncate">{peer.peerId.split('-')[1]}</span>
+                            <span className="text-[9px] text-text-dim">({peer.displayName})</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] text-text-dim font-bold">{(peer.reliabilityScore * 100).toFixed(0)}%</span>
+                            <span className={`text-[8px] uppercase px-1.5 py-0.5 rounded font-bold ${stateClass}`}>{peer.state}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[9px] text-text-dim font-bold">{(peer.reliabilityScore * 100).toFixed(0)}%</span>
-                          <span className="text-[8px] uppercase bg-surface-300 px-1 py-0.5 rounded text-text-dim font-black">{peer.state}</span>
-                        </div>
+                        {assignedSubtasks.length > 0 && (
+                          <div className="px-2 py-1.5 border-t border-border/40 bg-surface-300/30">
+                            <div className="text-[8px] text-text-dim font-bold mb-1">SUBTASKS ({assignedSubtasks.length}):</div>
+                            <div className="space-y-1">
+                              {assignedSubtasks.map(st => {
+                                const statusColor = st.status === 'completed' ? 'bg-success' : st.status === 'in_progress' ? 'bg-warning' : st.status === 'failed' ? 'bg-error' : 'bg-text-dim'
+                                return (
+                                  <div key={st.id} className="text-[9px] bg-surface-300 p-1.5 rounded border border-border/50 font-mono">
+                                    <div className="flex items-center gap-1 mb-1">
+                                      <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor}`} />
+                                      <span className="text-primary-300 font-bold">{st.title}</span>
+                                      <span className="text-[8px] text-text-dim ml-auto">{st.status}</span>
+                                      {st.progress !== undefined && <span className="text-[8px] text-text-dim">{st.progress}%</span>}
+                                    </div>
+                                    <div className="text-[8px] text-text-dim ml-2.5 line-clamp-2">{st.description}</div>
+                                    {st.statusText && <div className="text-[8px] text-accent-400 ml-2.5 mt-0.5">→ {st.statusText}</div>}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   })

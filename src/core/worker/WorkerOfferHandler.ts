@@ -24,10 +24,16 @@ class WorkerOfferHandler {
       const localPeerId = peerNetworkManager.getLocalPeerId()
 
       // Only accept if directed to us
-      if (msg.toPeerId && msg.toPeerId !== localPeerId) return
+      if (msg.toPeerId && msg.toPeerId !== localPeerId) {
+        console.debug(`[WorkerOfferHandler] Ignoring offer not directed to us: ${msg.toPeerId}`)
+        return
+      }
+
+      console.log(`[WorkerOfferHandler] Received task/offer: ${offer.subtaskId} (${offer.title})`)
 
       const state = peerStateStore.getLocalState()
       if (state !== 'idle' || !peerStateStore.getAcceptsRemoteTasks()) {
+        console.log(`[WorkerOfferHandler] Rejecting: state=${state}, acceptsRemote=${peerStateStore.getAcceptsRemoteTasks()}`)
         const reject = createMessage<TaskRejectPayload>('task/reject', localPeerId, {
           subtaskId: offer.subtaskId,
           reason: `Peer not available: state=${state}`,
@@ -38,6 +44,7 @@ class WorkerOfferHandler {
 
       const model = this.getModel()
       if (!model || !model.isReady()) {
+        console.log(`[WorkerOfferHandler] Rejecting: model not ready`)
         const reject = createMessage<TaskRejectPayload>('task/reject', localPeerId, {
           subtaskId: offer.subtaskId,
           reason: 'Model not ready',
@@ -47,11 +54,13 @@ class WorkerOfferHandler {
       }
 
       // Accept
+      console.log(`[WorkerOfferHandler] ACCEPTING task: ${offer.subtaskId}`)
       const accept = createMessage<TaskAcceptPayload>('task/accept', localPeerId, {
         subtaskId: offer.subtaskId,
         leaseId: offer.leaseId,
       }, msg.fromPeerId)
-      peerNetworkManager.sendToPeer(msg.fromPeerId, accept)
+      const sent = peerNetworkManager.sendToPeer(msg.fromPeerId, accept)
+      console.log(`[WorkerOfferHandler] Sent task/accept, success=${sent}`)
 
       // Build subtask object from offer
       const subtask: Subtask = {

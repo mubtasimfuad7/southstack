@@ -51,12 +51,16 @@ class MessageBus {
           this.pendingRequests.delete(payload.requestId)
           if (msg.type === 'tool/error') {
             const errPayload = msg.payload as { requestId: string; error: string }
+            console.warn(`[MessageBus] Tool error for ${payload.requestId}:`, errPayload.error)
             pending.reject(new Error(errPayload.error))
           } else {
             const resPayload = msg.payload as { requestId: string; result: unknown }
+            console.debug(`[MessageBus] Tool response arrived for ${payload.requestId}`)
             pending.resolve(resPayload.result)
           }
           return
+        } else {
+          console.warn(`[MessageBus] Received tool response for unknown request: ${payload.requestId}`)
         }
       }
     }

@@ -37,6 +37,15 @@ export interface RootTask {
   updatedAt: number
   subtaskIds: string[]
   verificationResult?: { pass: boolean; issues: string[] }
+  metadata?: {
+    planningProgress?: {
+      tokenCount: number
+      elapsed: number
+      status: string
+      tokens: string[]
+      finished?: boolean
+    }
+  }
 }
 
 // ── Subtask ────────────────────────────────────────────────
@@ -79,6 +88,18 @@ export interface Subtask {
   resultSummary?: string
   filesWritten?: string[]
   failureReason?: string
+
+  // Worker model thinking (visible to UI)
+  workerThinking?: {
+    iteration: number
+    modelResponse?: string
+    toolCall?: {
+      tool: string
+      input: Record<string, unknown>
+    }
+    tokensGenerated?: number
+    timeElapsed?: number
+  }
 
   createdAt: number
   updatedAt: number

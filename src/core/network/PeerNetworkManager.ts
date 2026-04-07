@@ -17,8 +17,8 @@ import {
   type PeerLocalState,
 } from './protocol'
 
-const HEARTBEAT_INTERVAL_MS = 2_000
-const PEER_TIMEOUT_MS = 6_000
+const HEARTBEAT_INTERVAL_MS = 1_000  // More frequent heartbeats
+const PEER_TIMEOUT_MS = 10_000      // More forgiving timeout (10s instead of 6s)
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ]
@@ -261,11 +261,14 @@ class PeerNetworkManager {
 
   private _startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
-      const heartbeat = createMessage<HeartbeatPayload>('peer/heartbeat', this.localPeerId, {
-        state: this.getLocalState(),
-        acceptsRemoteTasks: this.getAcceptsRemote(),
-      })
-      this.broadcast(heartbeat)
+      // Use Promise to ensure heartbeat isn't blocked by CPU-intensive operations
+      Promise.resolve().then(() => {
+        const heartbeat = createMessage<HeartbeatPayload>('peer/heartbeat', this.localPeerId, {
+          state: this.getLocalState(),
+          acceptsRemoteTasks: this.getAcceptsRemote(),
+        })
+        this.broadcast(heartbeat)
+      }).catch(e => console.warn('[P2P] Heartbeat error', e))
     }, HEARTBEAT_INTERVAL_MS)
   }
 

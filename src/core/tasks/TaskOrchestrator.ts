@@ -9,6 +9,7 @@ import { leaseManager } from './leaseManager'
 import { messageBus } from '@/core/network/messageBus'
 import { peerStateStore } from '@/core/peers/PeerStateStore'
 import { peerNetworkManager } from '@/core/network/PeerNetworkManager'
+import { remoteToolBridge } from '@/core/tools/RemoteToolBridge'
 import { createMessage } from '@/core/network/protocol'
 import type {
   TaskAcceptPayload,
@@ -24,6 +25,7 @@ import type { RootTask, Subtask } from './taskTypes'
 import type { ModelProvider } from '@/core/interfaces/IModelProvider'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { fileLocks } from '@/core/tools/fileLocks'
+import { useFSStore } from '@/application/store'
 
 type OrchestratorChangeCallback = (rootTask: RootTask, subtasks: Map<string, Subtask>) => void
 
@@ -49,20 +51,59 @@ export class TaskOrchestrator {
   async start(): Promise<void> {
     this._updateRootTask({ status: 'planning' })
     peerStateStore.setLocalState('busy_self')
+    
+    // Enable the tool bridge so remote workers can call tools
+    remoteToolBridge.startHosting(this.localPeerId)
+    console.log('[Orchestrator] Tool bridge enabled for peer', this.localPeerId)
 
     // Get file tree context for planner
     const tree = await fileSystemService.getTree()
     const treeContext = JSON.stringify(tree, null, 2).slice(0, 1500)
 
-    // Plan
+    // Plan with progress callback - accumulate tokens
+    const tokenBuffer: string[] = []
+    
     const subtasks = await this.planner.plan(
       this.rootTask.prompt,
       treeContext,
       this.rootTask.id,
       this.localPeerId,
+      (progress) => {
+        console.log('[Orchestrator] Planning progress:', progress)
+        tokenBuffer.push(progress.token)
+        // Keep last 100 tokens to avoid memory bloat
+        const displayTokens = tokenBuffer.slice(-100)
+        this._updateRootTask({ 
+          metadata: {
+            planningProgress: {
+              tokenCount: progress.tokenCount,
+              elapsed: progress.elapsed,
+              status: progress.status,
+              tokens: displayTokens
+            }
+          }
+        })
+        this._emit()
+      }
     )
     subtasks.forEach((s) => this.subtasks.set(s.id, s))
-    this._updateRootTask({ status: 'running', subtaskIds: subtasks.map((s) => s.id) })
+    
+    // Preserve final planning progress with completion flag
+    const finalProgress = {
+      tokenCount: tokenBuffer.length,
+      elapsed: Date.now() - (this.rootTask.createdAt),
+      status: `Plan complete: ${subtasks.length} subtasks generated`,
+      tokens: tokenBuffer.slice(-100),
+      finished: true
+    }
+    
+    this._updateRootTask({ 
+      status: 'running', 
+      subtaskIds: subtasks.map((s) => s.id),
+      metadata: {
+        planningProgress: finalProgress
+      }
+    })
     this._emit()
 
     // Initial scheduling tick
@@ -86,12 +127,25 @@ export class TaskOrchestrator {
         fileLocks.releaseBySubtask(s.id)
       }
     })
+    remoteToolBridge.stopHosting()
     this._cleanup()
   }
 
   // ── Event subscriptions ────────────────────────────────
 
   private _subscribe(): void {
+    // Subscribe to peer registry changes to reschedule if new workers appear
+    this.unsubs.push(
+      peerStateStore.onRegistryChange((_peers) => {
+        // Check if there are now eligible workers for queued subtasks
+        const dispatchable = [...this.subtasks.values()].filter((s) => s.status === 'queued')
+        if (dispatchable.length > 0) {
+          console.debug('[Orchestrator] Peer registry changed, rescheduling...')
+          this._scheduleTick()
+        }
+      }),
+    )
+
     this.unsubs.push(
       messageBus.on<TaskAcceptPayload>('task/accept', (msg) => {
         if (!this.subtasks.has(msg.payload.subtaskId)) return
@@ -116,6 +170,7 @@ export class TaskOrchestrator {
         this._updateSubtask(msg.payload.subtaskId, {
           progress: msg.payload.progress,
           statusText: msg.payload.statusText,
+          workerThinking: msg.payload.workerThinking,
         })
         this._emit()
       }),
@@ -127,6 +182,9 @@ export class TaskOrchestrator {
           console.warn('[Orchestrator] Stale result rejected', msg.payload.subtaskId)
           return
         }
+        
+        console.log(`[Orchestrator] Task result from ${msg.fromPeerId}: success=${msg.payload.success}, filesWritten=${JSON.stringify(msg.payload.filesWritten)}`)
+        
         leaseManager.releaseLease(msg.payload.subtaskId)
         fileLocks.releaseBySubtask(msg.payload.subtaskId)
         peerStateStore.updatePeerReliability(msg.fromPeerId, msg.payload.success)
@@ -190,16 +248,22 @@ export class TaskOrchestrator {
   private _onOfferResult = (subtaskId: string, accepted: boolean, byPeerId: string | null): void => {
     if (!this.subtasks.has(subtaskId)) return
 
+    console.log(`[Orchestrator] _onOfferResult: subtaskId=${subtaskId}, accepted=${accepted}, byPeerId=${byPeerId}, localPeerId=${this.localPeerId}`)
+
     if (accepted && byPeerId === this.localPeerId) {
       // Self-assign: run locally
+      console.log(`[Orchestrator] Running subtask LOCALLY (self-assign)`)
       this._updateSubtask(subtaskId, { status: 'in_progress', assignedPeerId: this.localPeerId })
       this._emit()
       this._runLocally(subtaskId)
     } else if (!accepted) {
       // All peers rejected — fallback to self
+      console.log(`[Orchestrator] Running subtask LOCALLY (fallback: all peers rejected)`)
       this._updateSubtask(subtaskId, { status: 'in_progress', assignedPeerId: this.localPeerId })
       this._emit()
       this._runLocally(subtaskId)
+    } else {
+      console.log(`[Orchestrator] Subtask assigned to remote peer: ${byPeerId}`)
     }
   }
 
@@ -306,6 +370,27 @@ export class TaskOrchestrator {
   }
 
   private async _runVerification(): Promise<void> {
+    remoteToolBridge.stopHosting()
+    
+    // Sync written files to local OS filesystem
+    try {
+      console.log('[Orchestrator] Syncing files to local filesystem after task completion')
+      await fileSystemService.syncToLocalFS()
+      console.log('[Orchestrator] Files synced successfully')
+      
+      // Refresh file tree in UI
+      try {
+        const tree = await fileSystemService.getTree()
+        useFSStore.getState().setProjectRoot(tree)
+        console.log('[Orchestrator] File explorer refreshed with new files')
+      } catch (err) {
+        console.warn('[Orchestrator] Failed to refresh file explorer:', err)
+      }
+    } catch (err) {
+      console.warn('[Orchestrator] Failed to sync to local filesystem:', err)
+      // Continue with verification even if sync fails
+    }
+
     const { VerificationEngine } = await import('@/core/verify/VerificationEngine')
     const allTargets = [...this.subtasks.values()].flatMap((s) => s.targetPaths)
     const result = await VerificationEngine.verify(allTargets)
@@ -332,5 +417,6 @@ export class TaskOrchestrator {
   private _cleanup(): void {
     this.unsubs.forEach((u) => u())
     this.unsubs = []
+    this.scheduler.destroy()
   }
 }

@@ -7,12 +7,21 @@ import type { PeerStatus } from '@/core/tasks/taskTypes'
 
 /** Peers that can accept a remote subtask right now */
 export function getEligibleWorkers(): PeerStatus[] {
-  return [...peerStateStore.getRemotePeers().values()].filter(
+  const peers = [...peerStateStore.getRemotePeers().values()]
+  const eligible = peers.filter(
     (p) =>
       p.state === 'idle' &&
       p.acceptsRemoteTasks &&
       p.capabilities.protocolVersion === '0.1.0',
   )
+  
+  if (eligible.length === 0 && peers.length > 0) {
+    console.debug('[PeerSelectors] No eligible workers found. Peer states:', 
+      peers.map(p => ({ id: p.peerId, state: p.state, accepts: p.acceptsRemoteTasks }))
+    )
+  }
+  
+  return eligible
 }
 
 /** Eligible workers sorted by reliability (desc) then latency (asc) */

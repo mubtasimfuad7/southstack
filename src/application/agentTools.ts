@@ -20,16 +20,15 @@ export function buildAgentTools(): AgentTool[] {
     },
     {
       name: 'write_file',
-      description: 'Propose a code change (Draft). Parameters: { "path": string, "content": string }',
+      description: 'Write content to a file. Parameters: { "path": string, "content": string }',
       async execute(args) {
         const path = (args.path || args.file_path || args.filename || args.file) as string;
         if (!path) throw new Error('Missing parameter: path')
         const content = (args.content || args.code || args.text) as string;
         
-        const { editorService } = await import('@/core/services/EditorService')
-        await editorService.proposeChange(path, content ?? '')
+        await fileSystemService.writeFile(path, content ?? '')
         
-        return { success: true, path, note: 'Change proposed to user. Waiting for approval in the Editor Diff View.' }
+        return { success: true, path }
       },
     },
     {

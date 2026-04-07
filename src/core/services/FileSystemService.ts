@@ -177,16 +177,28 @@ export class FileSystemService implements IFileSystemService {
   }
 
   async writeFile(path: string, content: string): Promise<void> {
-    await saveFile({ path, content, lastModified: Date.now() })
-    this._notifyWatchers(path, content)
-    
-    // Write-through to runtime
-    const { runtimeService } = await import('@/core/services/RuntimeService')
-    await runtimeService.writeFile(path, content)
+    console.log(`[FileSystemService] writeFile START: path="${path}", contentLength=${content?.length || 0}`)
+    try {
+      await saveFile({ path, content, lastModified: Date.now() })
+      console.log(`[FileSystemService] Saved to IndexedDB: ${path}`)
+      this._notifyWatchers(path, content)
+      
+      // Write-through to runtime
+      const { runtimeService } = await import('@/core/services/RuntimeService')
+      await runtimeService.writeFile(path, content)
+      console.log(`[FileSystemService] Written to runtime: ${path}`)
 
-    // Only refresh the parent directory subtree
-    const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-    await useFSStore.getState().refreshSubtree(parentDir)
+      // Only refresh the parent directory subtree
+      const parentDir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
+      const fsStore = useFSStore.getState()
+      if (fsStore.refreshSubtree) {
+        await fsStore.refreshSubtree(parentDir)
+        console.log(`[FileSystemService] Refreshed subtree: ${parentDir}`)
+      }
+    } catch (err) {
+      console.error(`[FileSystemService] writeFile FAILED for ${path}:`, err)
+      throw err
+    }
   }
 
   async createFile(path: string, content = ''): Promise<void> {

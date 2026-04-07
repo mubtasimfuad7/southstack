@@ -54,48 +54,84 @@ export class WorkerAgentRuntime {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
         if (this.stopped) break
 
+        console.log(`[WorkerRuntime] Iteration ${i + 1}/${MAX_ITERATIONS}, subtask=${subtask.id}`)
         const raw = await this.model.generate(history, { maxTokens: 2000, temperature: 0.2 })
+        console.log(`[WorkerRuntime] Model response (first 500 chars):`, raw.slice(0, 500))
         history.push({ role: 'assistant', content: raw })
 
         const parsed = this._parseResponse(raw)
         if (!parsed) {
+          console.warn(`[WorkerRuntime] Failed to parse model response. Raw: ${raw.slice(0, 300)}`)
           history.push({ role: 'user', content: 'Invalid response format. Please respond with valid JSON.' })
           continue
         }
 
-        if (parsed.status === 'done') {
-          this._stopProgressTimer()
-          if (!this.isLocal) peerStateStore.setLocalState('idle')
-          this._sendResult(subtask, true, parsed.summary ?? 'Completed', parsed.filesWritten ?? filesWritten)
-          return {
-            success: true,
-            resultSummary: parsed.summary ?? 'Completed',
-            filesWritten: parsed.filesWritten ?? filesWritten,
-          }
+        console.log(`[WorkerRuntime] Parsed response:`, parsed)
+
+        // Send worker thinking update to orchestrator (for remote peers)
+        if (!this.isLocal && subtask.leaseId) {
+          this._sendThinkingUpdate(subtask, i + 1, raw.slice(0, 500), parsed.action)
         }
 
-        if (parsed.status === 'failed') {
-          this._stopProgressTimer()
-          if (!this.isLocal) peerStateStore.setLocalState('idle')
-          this._sendResult(subtask, false, parsed.reason ?? 'Failed', filesWritten)
-          return { success: false, resultSummary: parsed.reason ?? 'Failed', filesWritten }
-        }
-
-        if (parsed.status === 'continue' && parsed.action) {
+        // CRITICAL: Process any action first, even if status is 'done'
+        // This handles cases where model includes both action and done status
+        if (parsed.action) {
+          console.log(`[WorkerRuntime] Calling tool: ${parsed.action.tool}`, parsed.action.input)
           try {
             const toolResult = await this._callTool(
               subtask,
               parsed.action.tool as ToolName,
               parsed.action.input ?? {},
             )
+            console.log(`[WorkerRuntime] Tool ${parsed.action.tool} result:`, toolResult)
             if (parsed.action.tool === 'writeFile') {
               const path = (parsed.action.input as Record<string, string>)?.path
+              console.log(`[WorkerRuntime] writeFile completed for: ${path}`)
               if (path && !filesWritten.includes(path)) filesWritten.push(path)
             }
             history.push({ role: 'user', content: `Tool result: ${JSON.stringify(toolResult).slice(0, 1000)}` })
           } catch (err) {
-            history.push({ role: 'user', content: `Tool error: ${err instanceof Error ? err.message : String(err)}` })
+            const errMsg = err instanceof Error ? err.message : String(err)
+            console.error(`[WorkerRuntime] Tool error for ${parsed.action.tool}:`, errMsg)
+            history.push({ role: 'user', content: `Tool error: ${errMsg}` })
           }
+        }
+
+        // Now check terminal states AFTER processing any actions
+        if (parsed.status === 'done') {
+          // CRITICAL: Validate that actual files were written
+          // Don't trust the model's self-reported filesWritten - use actual tool calls
+          if (subtask.targetPaths && subtask.targetPaths.length > 0 && filesWritten.length === 0) {
+            // Task requires file creation but no tools were actually called
+            console.warn(`[WorkerRuntime] Model claimed done but no write tool calls made. Rejecting.`)
+            history.push({ 
+              role: 'user', 
+              content: `Your task requires writing files to ${subtask.targetPaths.join(', ')} but no writeFile tools were called. You must actually use the writeFile tool to create the required files before marking the task as done.` 
+            })
+            continue
+          }
+
+          this._stopProgressTimer()
+          if (!this.isLocal) peerStateStore.setLocalState('idle')
+          console.log(`[WorkerRuntime] Task DONE. filesWritten=${JSON.stringify(filesWritten)}, summary=${parsed.summary}`)
+          this._sendResult(subtask, true, parsed.summary ?? 'Completed', filesWritten)
+          return {
+            success: true,
+            resultSummary: parsed.summary ?? 'Completed',
+            filesWritten: filesWritten,
+          }
+        }
+
+        if (parsed.status === 'failed') {
+          this._stopProgressTimer()
+          if (!this.isLocal) peerStateStore.setLocalState('idle')
+          console.warn(`[WorkerRuntime] Task FAILED. Reason: ${parsed.reason}`)
+          this._sendResult(subtask, false, parsed.reason ?? 'Failed', filesWritten)
+          return { success: false, resultSummary: parsed.reason ?? 'Failed', filesWritten }
+        }
+
+        if (parsed.status === 'continue' && !parsed.action) {
+          console.warn(`[WorkerRuntime] Status is 'continue' but no action provided. Response:`, parsed)
         }
       }
 
@@ -189,10 +225,41 @@ export class WorkerAgentRuntime {
     }
   }
 
+  private _sendThinkingUpdate(
+    subtask: Subtask,
+    iteration: number,
+    modelResponse: string,
+    action?: { tool: string; input?: Record<string, unknown> }
+  ): void {
+    if (this.isLocal) return
+    const progressMsg = createMessage<TaskProgressPayload>(
+      'task/progress',
+      this.workerId,
+      {
+        subtaskId: subtask.id,
+        leaseId: subtask.leaseId ?? '',
+        progress: Math.min(90, iteration * 15),
+        statusText: `Iteration ${iteration}${action ? `: calling ${action.tool}` : ''}`,
+        workerThinking: {
+          iteration,
+          modelResponse,
+          toolCall: action ? {
+            tool: action.tool,
+            input: action.input ?? {},
+          } : undefined,
+          timeElapsed: Date.now() - (subtask.createdAt ?? 0),
+        },
+      },
+      this.initiatorId
+    )
+    peerNetworkManager.sendToPeer(this.initiatorId, progressMsg)
+  }
+
   // ── Message senders (remote only) ─────────────────────
 
   private _sendResult(subtask: Subtask, success: boolean, summary: string, filesWritten: string[]): void {
     if (this.isLocal) return
+    console.log(`[WorkerRuntime] Sending task/result to ${this.initiatorId}: success=${success}, filesWritten=${JSON.stringify(filesWritten)}`)
     const msg = createMessage<TaskResultPayload>('task/result', this.workerId, {
       subtaskId: subtask.id,
       leaseId: subtask.leaseId ?? '',
@@ -200,7 +267,8 @@ export class WorkerAgentRuntime {
       resultSummary: summary,
       filesWritten,
     }, this.initiatorId)
-    peerNetworkManager.sendToPeer(this.initiatorId, msg)
+    const sent = peerNetworkManager.sendToPeer(this.initiatorId, msg)
+    console.log(`[WorkerRuntime] task/result sent=${sent}`)
   }
 
   private _sendCancel(subtask: Subtask, reason: string): void {
