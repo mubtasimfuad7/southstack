@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Send, Bot, Loader2, CheckCircle2, XCircle,
   AlertCircle, Clock, Zap, ChevronDown, ChevronUp,
-  Square, Copy, Check, Network, Activity, Wrench, Search, X
+  Square, Copy, Check, Network, Activity, Wrench, Search, X, Mic, MicOff
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -200,8 +200,19 @@ export function AgentPanel() {
   const [activeTab, setActiveTab] = useState<'ai' | 'p2p'>('ai')
   const [input, setInput] = useState('')
   const [showPlan, setShowPlan] = useState(true)
+  const [isListening, setIsListening] = useState(false)
+  const [speechError, setSpeechError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [agentService, setAgentService] = useState<any>(null)
+  const recognitionRef = useRef<any>(null)
+  const transcriptRef = useRef('')
+  const baseInputRef = useRef('')
+  const stopRequestedRef = useRef(false)
+  const pendingSendAfterStopRef = useRef<string | null>(null)
+
+  const speechSupported =
+    typeof window !== 'undefined' &&
+    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
 
   useEffect(() => {
     async function bootstrap() {
@@ -234,9 +245,22 @@ export function AgentPanel() {
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  async function handleSend() {
-    if (!input.trim() || !agentService) return
-    const prompt = input.trim()
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null
+        recognitionRef.current.onend = null
+        recognitionRef.current.onerror = null
+        recognitionRef.current.stop()
+      }
+    }
+  }, [])
+
+  async function handleSendPrompt(rawPrompt: string) {
+    if (!agentService) return
+    const prompt = rawPrompt.trim()
+    if (!prompt) return
+
     setInput('')
 
     if (isDistributed) {
@@ -275,6 +299,107 @@ export function AgentPanel() {
       await agentService.start(prompt)
     }
   }
+
+  async function handleSend() {
+    if (isListening) {
+      pendingSendAfterStopRef.current = input
+      stopSpeechRecognition()
+      return
+    }
+
+    await handleSendPrompt(input)
+  }
+
+  function startSpeechRecognition() {
+    if (!speechSupported) {
+      setSpeechError('Voice input is not supported in this browser.')
+      return
+    }
+
+    if (isListening) {
+      return
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.continuous = true
+    recognition.interimResults = true
+
+    const existingInput = input.trim()
+    baseInputRef.current = existingInput ? `${existingInput} ` : ''
+    transcriptRef.current = ''
+    stopRequestedRef.current = false
+    setSpeechError(null)
+    setIsListening(true)
+
+    recognition.onresult = (event: any) => {
+      let finalTranscript = transcriptRef.current
+      let interimTranscript = ''
+
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0]?.transcript ?? ''
+        if (event.results[i].isFinal) finalTranscript += transcript
+        else interimTranscript += transcript
+      }
+
+      transcriptRef.current = finalTranscript
+      setInput(`${baseInputRef.current}${finalTranscript}${interimTranscript}`.trim())
+    }
+
+    recognition.onerror = (event: any) => {
+      setSpeechError(event.error === 'not-allowed'
+        ? 'Microphone access was blocked.'
+        : 'Voice input failed. Please try again.')
+      stopRequestedRef.current = false
+      setIsListening(false)
+      recognitionRef.current = null
+      pendingSendAfterStopRef.current = null
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+      recognitionRef.current = null
+      stopRequestedRef.current = false
+      transcriptRef.current = ''
+      baseInputRef.current = ''
+
+      const pendingPrompt = pendingSendAfterStopRef.current
+      pendingSendAfterStopRef.current = null
+      if (pendingPrompt?.trim()) {
+        void handleSendPrompt(pendingPrompt)
+      }
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+  }
+
+  function stopSpeechRecognition() {
+    if (!isListening) return
+    stopRequestedRef.current = true
+    recognitionRef.current?.stop()
+
+    // Fallback in case the browser delays the native onend callback.
+    window.setTimeout(() => {
+      if (!stopRequestedRef.current) return
+      setIsListening(false)
+      recognitionRef.current = null
+      stopRequestedRef.current = false
+      const pendingPrompt = pendingSendAfterStopRef.current
+      pendingSendAfterStopRef.current = null
+      if (pendingPrompt?.trim()) {
+        void handleSendPrompt(pendingPrompt)
+      }
+    }, 400)
+  }
+
+  function handleMicToggle() {
+    if (isListening) stopSpeechRecognition()
+    else startSpeechRecognition()
+  }
+
+  const canInteract = modelReady && (status === 'idle' || status === 'error' || status === 'done')
 
   return (
     <div className="flex flex-col h-full bg-surface-100 w-full">
@@ -359,7 +484,7 @@ export function AgentPanel() {
                   )}
                 </div>
               )}
-              {rootTask?.metadata?.planningProgress?.finished && status === 'running' && (
+              {rootTask?.metadata?.planningProgress?.finished && status === 'executing' && (
                 <div className="ml-4 text-[10px] text-text-dim space-y-2 p-2 bg-surface-200 rounded border border-border/50 opacity-75">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 size={12} className="text-success" />
@@ -486,27 +611,50 @@ export function AgentPanel() {
 
       {/* Footer Input */}
       <div className="px-3 py-3 border-t border-border bg-surface-100 flex-shrink-0 shadow-lg">
-        <div className="flex items-end gap-2">
+        {speechError && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-[10px] text-error">
+            <AlertCircle size={12} />
+            <span>{speechError}</span>
+          </div>
+        )}
+        <div className="flex items-stretch gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             placeholder={modelReady ? 'Command…' : 'Initializing…'}
-            disabled={!modelReady || (status !== 'idle' && status !== 'error' && status !== 'done')}
+            disabled={!canInteract}
             rows={2}
-            className="flex-1 bg-surface-200 border border-border rounded-lg px-3 py-2 text-[11px] text-text-primary focus:outline-none focus:ring-1 focus:ring-primary-500/30 transition-all resize-none disabled:opacity-50"
+            className="min-h-[60px] flex-1 bg-surface-200 border border-border rounded-xl px-4 py-3 text-[12px] leading-relaxed text-text-primary placeholder:text-text-dim/80 focus:outline-none focus:ring-1 focus:ring-primary-500/30 focus:border-primary-500/30 transition-all resize-none disabled:opacity-50"
           />
-          <button onClick={handleSend} disabled={!modelReady || !input.trim() || (status !== 'idle' && status !== 'error' && status !== 'done')}
-            className="p-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-30 rounded-lg transition-all shadow-lg shadow-primary-500/20 text-white"
+          <button
+            onClick={handleMicToggle}
+            disabled={!canInteract || !speechSupported}
+            title={isListening ? 'Stop voice input' : 'Start voice input'}
+            className={`h-[60px] w-[60px] flex items-center justify-center rounded-xl transition-all border ${
+              isListening
+                ? 'bg-error/20 border-error/40 text-error shadow-lg shadow-error/10'
+                : 'bg-surface-200 border-border text-text-secondary hover:text-text-primary hover:border-primary-500/30 hover:bg-surface-300/70'
+            } disabled:opacity-30`}
           >
-            <Send size={14} />
+            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+          <button onClick={handleSend} disabled={!input.trim() || !canInteract}
+            className="h-[60px] w-[60px] flex items-center justify-center rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-30 transition-all shadow-lg shadow-primary-500/20 text-white"
+          >
+            <Send size={18} />
           </button>
         </div>
         <div className="mt-2 flex items-center justify-between px-1">
-          <label className="flex items-center gap-1.5 cursor-pointer group">
-            <input type="checkbox" checked={isDistributed} onChange={e => setDistributed(e.target.checked)} className="accent-primary-500 size-3 rounded" />
-            <span className={`text-[9px] uppercase font-black ${isDistributed ? 'text-primary-400' : 'text-text-dim group-hover:text-text-secondary'}`}>Distributed Mode</span>
-          </label>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer group">
+              <input type="checkbox" checked={isDistributed} onChange={e => setDistributed(e.target.checked)} className="accent-primary-500 size-3 rounded" />
+              <span className={`text-[9px] uppercase font-black ${isDistributed ? 'text-primary-400' : 'text-text-dim group-hover:text-text-secondary'}`}>Distributed Mode</span>
+            </label>
+            <span className={`text-[9px] uppercase font-bold ${isListening ? 'text-error' : 'text-text-dim'}`}>
+              {isListening ? 'Listening… click mic to stop' : speechSupported ? 'Click mic to talk' : 'Voice unavailable'}
+            </span>
+          </div>
           <span className="text-[8px] text-text-dim font-mono uppercase tracking-tighter">Qwen2.5-Coder (Offline)</span>
         </div>
       </div>
