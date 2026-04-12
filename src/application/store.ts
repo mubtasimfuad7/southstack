@@ -176,7 +176,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
       return { messages }
     }),
-  isDistributed: false,
+  isDistributed: true,
   setDistributed: (isDistributed) => set({ isDistributed }),
   setModelReady: (v) => set({ modelReady: v }),
   setModelProgress: (p, text) => set({ modelProgress: p, modelProgressText: text }),

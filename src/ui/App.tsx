@@ -116,25 +116,24 @@ export function App() {
       <div className="flex-1 relative overflow-hidden min-h-0">
         <HorizontalSplit
           left={<FileExplorer />}
-          right={centerColumn}
+          right={
+            agentPanelOpen ? (
+              <HorizontalSplit
+                left={centerColumn}
+                right={<AgentPanel />}
+                // Use a large pixel value for initial width of the center column
+                initialLeftWidth={window.innerWidth > 1200 ? window.innerWidth - 450 : 800}
+                minLeft={400}
+                maxLeft={window.innerWidth - 300}
+              />
+            ) : (
+              centerColumn
+            )
+          }
           initialLeftWidth={260}
           minLeft={180}
           maxLeft={450}
         />
-
-        {/* Centered Large Command Center Overlay */}
-        {agentPanelOpen && (
-          <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in transition-all">
-            <div 
-              className="w-[90%] h-[90%] bg-panel border border-border shadow-[0_32px_64px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden flex animate-slide-up relative"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <AgentPanel />
-            </div>
-            {/* Click outside to close (optional but user might like it, though they have X) */}
-            <div className="absolute inset-0 -z-10" onClick={() => setAgentPanelOpen(false)} />
-          </div>
-        )}
       </div>
     </div>
   )

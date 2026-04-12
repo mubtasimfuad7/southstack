@@ -140,7 +140,7 @@ function SubtaskRow({ subtask }: { subtask: Subtask }) {
     requeued: <Search size={10} className="text-primary-400" />
   }
   const [showWorkerThinking, setShowWorkerThinking] = useState(false)
-  
+
   return (
     <div className="text-[11px] bg-surface-200 p-2 rounded border border-border mb-1">
       <div className="flex items-start gap-2">
@@ -197,9 +197,9 @@ export function AgentPanel() {
   const { rootTask, subtasks, remoteSubtask } = useP2PTaskStore()
   const { entries: toolEntries } = useToolLogStore()
 
-  const [activeTab, setActiveTab] = useState<'ai' | 'p2p'>('ai')
   const [input, setInput] = useState('')
   const [showPlan, setShowPlan] = useState(true)
+  const [showNetwork, setShowNetwork] = useState(true)
   const [isListening, setIsListening] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -264,7 +264,6 @@ export function AgentPanel() {
     setInput('')
 
     if (isDistributed) {
-      setActiveTab('p2p')
       const [{ TaskOrchestrator }, { useP2PTaskStore: pStore }, { localModelProvider }, { peerNetworkManager }] = await Promise.all([
         import('@/core/tasks/TaskOrchestrator'),
         import('@/application/store'),
@@ -402,260 +401,198 @@ export function AgentPanel() {
   const canInteract = modelReady && (status === 'idle' || status === 'error' || status === 'done')
 
   return (
-    <div className="flex flex-col h-full bg-surface-100 w-full">
-      {/* Header Tabs with larger padding */}
-      <div className="flex items-center px-4 border-b border-border bg-surface-200/50 flex-shrink-0 h-14">
-        <button onClick={() => setActiveTab('ai')} className={`flex-1 flex items-center justify-center gap-2 h-full text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'ai' ? 'text-primary-300 border-b-2 border-primary-500 bg-surface-200' : 'text-text-dim hover:text-text-secondary'}`}>
-          <Bot size={14} /> AI Agent
-        </button>
-        <button onClick={() => setActiveTab('p2p')} className={`flex-1 flex items-center justify-center gap-2 h-full text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'p2p' ? 'text-secondary-400 border-b-2 border-secondary-500 bg-surface-200' : 'text-text-dim hover:text-text-secondary'}`}>
-          <Network size={14} /> P2P Network
-        </button>
+    <div className="flex flex-col h-full bg-surface-100 w-full overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 border-b border-border bg-surface-200/50 flex-shrink-0 h-14">
+        <div className="flex items-center gap-2">
+          <Bot size={16} className="text-primary-400" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-text-primary">Distributed AI Agent</span>
+        </div>
         <button onClick={() => setAgentPanelOpen(false)} className="px-2 text-text-dim hover:text-error transition-colors">
           <X size={16} />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
-        {activeTab === 'ai' ? (
-          <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-100">
-              <div className="flex items-center gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full ${modelReady ? 'bg-success animate-pulse-slow' : 'bg-warning animate-pulse'}`} />
-                <span className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Model</span>
-              </div>
-              <StatusBadge status={status} />
+      <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar flex flex-col">
+        {/* Top: Model Status & Chat */}
+        <div className="flex flex-col flex-shrink-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-100">
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${modelReady ? 'bg-success animate-pulse-slow' : 'bg-warning animate-pulse'}`} />
+              <span className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Model</span>
             </div>
-
-            {!modelReady && (
-              <div className="px-3 py-2 border-b border-border bg-black/10">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] text-text-dim uppercase">{modelProgressText || 'Loading…'}</span>
-                  <span className="text-[9px] text-primary-300 font-mono">{Math.round(modelProgress * 100)}%</span>
-                </div>
-                <div className="h-1 bg-surface-300 rounded-full overflow-hidden">
-                  <div className="h-full bg-primary-500 transition-all duration-300" style={{ width: `${modelProgress * 100}%` }} />
-                </div>
-              </div>
-            )}
-
-            {plan.length > 0 && (
-              <div className="border-b border-border bg-surface-50">
-                <button onClick={() => setShowPlan(!showPlan)} className="flex items-center justify-between w-full px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-text-dim hover:bg-white/3">
-                  <span>Execution Plan</span>
-                  {showPlan ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </button>
-                {showPlan && <div className="px-2 pb-2 space-y-0.5">{plan.map((step, i) => <PlanStep key={step.id} step={step} index={i} />)}</div>}
-              </div>
-            )}
-
-            <div className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
-              {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center min-h-[200px] text-center opacity-40">
-                  <Bot size={32} className="text-text-dim mb-4" />
-                  <p className="text-[10px] font-bold uppercase tracking-widest">Agent Ready</p>
-                </div>
-              )}
-              {messages.map((msg) => <ChatMessage key={msg.id} role={msg.role} content={msg.content} />)}
-              {(status === 'executing' || status === 'planning') && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3 text-[11px] text-accent-300 animate-pulse-slow">
-                    <Loader2 size={12} className="animate-spin" />
-                    <span>{status === 'planning' ? 'Planning...' : 'Executing...'}</span>
-                  </div>
-                  {status === 'planning' && rootTask?.metadata?.planningProgress && (
-                    <div className="ml-4 text-[10px] text-text-dim space-y-2 p-2 bg-surface-200 rounded border border-border/50">
-                      <div className="space-y-1">
-                        <div>Tokens: {rootTask.metadata.planningProgress.tokenCount}</div>
-                        <div>Time: {(rootTask.metadata.planningProgress.elapsed / 1000).toFixed(1)}s</div>
-                        <div className="text-accent-300 font-mono text-[9px]">{rootTask.metadata.planningProgress.status}</div>
-                      </div>
-                      {rootTask.metadata.planningProgress.tokens && rootTask.metadata.planningProgress.tokens.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-border/30">
-                          <div className="text-[9px] text-text-dim mb-1">Token stream:</div>
-                          <div className="max-h-[120px] overflow-y-auto font-mono text-[8px] text-text-secondary bg-surface-300/50 p-1.5 rounded break-words leading-relaxed whitespace-pre-wrap">
-                            {rootTask.metadata.planningProgress.tokens.map((t, i) => (
-                              <span key={i}>{t}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {rootTask?.metadata?.planningProgress?.finished && status === 'executing' && (
-                <div className="ml-4 text-[10px] text-text-dim space-y-2 p-2 bg-surface-200 rounded border border-border/50 opacity-75">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 size={12} className="text-success" />
-                    <span className="text-success font-mono text-[9px]">Planning Complete</span>
-                  </div>
-                  <div className="space-y-1 text-[9px]">
-                    <div>Total tokens: {rootTask.metadata.planningProgress.tokenCount}</div>
-                    <div>Total time: {(rootTask.metadata.planningProgress.elapsed / 1000).toFixed(1)}s</div>
-                    <div>{rootTask.metadata.planningProgress.status}</div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
+            <StatusBadge status={status} />
           </div>
-        ) : (
-          <div className="p-3 space-y-4 divide-y divide-border/50">
-            {/* Local Node */}
-            <div className="pb-4">
-              <div className="text-[10px] uppercase font-black text-text-dim mb-2">Local Node</div>
-              <div className="flex items-center justify-between bg-surface-200 p-2 rounded border border-border">
-                <span className="text-[11px] font-mono text-text-primary truncate mr-2">{localPeerId || '...'}</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-success/10 text-success uppercase font-black">{localState}</span>
-              </div>
-              <label className="flex items-center gap-2 mt-3 cursor-pointer group">
-                <input type="checkbox" checked={acceptsRemoteTasks} onChange={(e) => setAcceptsRemoteTasks(e.target.checked)} className="accent-secondary-500 rounded" />
-                <span className="text-[10px] font-medium text-text-secondary group-hover:text-text-primary transition-colors">Accept Remote Work</span>
-              </label>
-            </div>
 
-            {/* Distributed Tasks */}
-            {(rootTask || remoteSubtask) && (
-              <div className="py-4">
-                <div className="text-[10px] uppercase font-black text-text-dim mb-2 flex items-center gap-2">
-                  <Activity size={10} className="text-primary-400" />
-                  Orchestrator
+          {!modelReady && (
+            <div className="px-3 py-2 border-b border-border bg-black/10">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] text-text-dim uppercase">{modelProgressText || 'Loading…'}</span>
+                <span className="text-[9px] text-primary-300 font-mono">{Math.round(modelProgress * 100)}%</span>
+              </div>
+              <div className="h-1 bg-surface-300 rounded-full overflow-hidden">
+                <div className="h-full bg-primary-500 transition-all duration-300" style={{ width: `${modelProgress * 100}%` }} />
+              </div>
+            </div>
+          )}
+
+          {plan.length > 0 && (
+            <div className="border-b border-border bg-surface-50">
+              <button onClick={() => setShowPlan(!showPlan)} className="flex items-center justify-between w-full px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-text-dim hover:bg-white/3">
+                <span className="flex items-center gap-2"><CheckCircle2 size={12} /> Execution Plan</span>
+                {showPlan ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+              {showPlan && <div className="px-2 pb-2 space-y-0.5">{plan.map((step, i) => <PlanStep key={step.id} step={step} index={i} />)}</div>}
+            </div>
+          )}
+        </div>
+
+        <div className="px-3 py-4 space-y-4">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center min-h-[150px] text-center opacity-40">
+              <Bot size={32} className="text-text-dim mb-4" />
+              <p className="text-[10px] font-bold uppercase tracking-widest">Agent Ready</p>
+            </div>
+          )}
+          {messages.map((msg) => <ChatMessage key={msg.id} role={msg.role} content={msg.content} />)}
+          {(status === 'executing' || status === 'planning') && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 text-[11px] text-accent-300 animate-pulse-slow">
+                <Loader2 size={12} className="animate-spin" />
+                <span>{status === 'planning' ? 'Planning...' : 'Executing...'}</span>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Distributed Activity Section (Bottom Stacking) */}
+        {(rootTask || remoteSubtask || peers.size > 0) && (
+          <div className="mt-auto border-t border-border bg-surface-200/50">
+            <button
+              onClick={() => setShowNetwork(!showNetwork)}
+              className="flex items-center justify-between w-full px-4 py-3 bg-surface-200 border-b border-border hover:bg-surface-300/50 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-primary">
+                <Network size={14} className="text-secondary-400" /> Distributed Activity
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[9px] text-text-dim bg-surface-100 px-1.5 py-0.5 rounded border border-border">{peers.size} Peers</span>
+                {showNetwork ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </div>
+            </button>
+
+            {showNetwork && (
+              <div className="p-3 space-y-4 bg-surface-100 animate-fade-in divide-y divide-border/30 max-h-[350px] overflow-y-auto custom-scrollbar">
+                {/* Peer Mesh Summary */}
+                <div className="pb-4">
+                  <div className="text-[9px] uppercase font-black text-text-dim mb-2 flex items-center justify-between">
+                    Mesh Status
+                    <span className="text-success text-[8px] flex items-center gap-1"><div className="w-1 h-1 rounded-full bg-success"></div> Connected</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from(peers.values()).map(peer => (
+                      <div key={peer.peerId} className="flex items-center gap-1.5 px-2 py-1 bg-surface-200 border border-border rounded text-[9px] font-mono">
+                        <div className={`w-1 h-1 rounded-full ${(Date.now() - peer.lastHeartbeat) > 8000 ? 'bg-error' : 'bg-success'}`} />
+                        <span className="text-text-secondary">{peer.peerId.split('-')[1]}</span>
+                      </div>
+                    ))}
+                    {peers.size === 0 && <span className="text-text-dim italic text-[9px]">Isolated Node</span>}
+                  </div>
                 </div>
-                {rootTask && (
-                  <div className="mb-3">
-                    <div className="text-[9px] text-primary-300 font-bold mb-1.5 px-2">LOCAL COORDINATOR</div>
-                    <div className="space-y-1">{Array.from(subtasks.values()).map(s => <SubtaskRow key={s.id} subtask={s} />)}</div>
+
+                {/* Orchestrator */}
+                {(rootTask || remoteSubtask) && (
+                  <div className="py-4">
+                    <div className="text-[9px] uppercase font-black text-text-dim mb-2">Live Orchestration</div>
+                    {rootTask && (
+                      <div className="space-y-1">{Array.from(subtasks.values()).map(s => <SubtaskRow key={s.id} subtask={s} />)}</div>
+                    )}
+                    {remoteSubtask && (
+                      <div className="mt-2 text-secondary-300 font-bold text-[9px]">Assigned to you: <SubtaskRow subtask={remoteSubtask} /></div>
+                    )}
                   </div>
                 )}
-                {remoteSubtask && (
-                  <div>
-                    <div className="text-[9px] text-secondary-400 font-bold mb-1.5 px-2">REMOTE WORKER</div>
-                    <SubtaskRow subtask={remoteSubtask} />
+
+                {/* Recent Tool Activity */}
+                {toolEntries.length > 0 && (
+                  <div className="py-4">
+                    <div className="text-[9px] uppercase font-black text-text-dim mb-2">Tool Bridge Activity</div>
+                    <div className="space-y-0.5">
+                      {toolEntries.slice(0, 5).map(e => (
+                        <div key={e.id} className="text-[8px] flex items-center justify-between text-text-dim border-b border-border/10 py-0.5">
+                          <span className="text-primary-300 font-bold">{e.tool}</span>
+                          <span className="opacity-50">@{e.workerPeerId.split('-')[1] || 'local'}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             )}
-
-            {/* Mesh */}
-            <div className="py-4">
-              <div className="text-[10px] uppercase font-black text-text-dim mb-2">Peer Mesh ({peers.size})</div>
-              <div className="space-y-2">
-                {peers.size === 0 ? <div className="text-[10px] text-text-dim italic text-center py-4 border border-dashed border-border rounded">No common nodes found.</div> :
-                  Array.from(peers.values()).map(peer => {
-                    const isStale = (Date.now() - peer.lastHeartbeat) > 8000
-                    const assignedSubtasks = Array.from(subtasks.values()).filter(s => s.assignedPeerId === peer.peerId)
-                    const stateClass = isStale ? 'bg-error/20 text-error' : peer.state === 'idle' ? 'bg-success/20 text-success' : peer.state === 'busy_remote' ? 'bg-warning/20 text-warning' : 'bg-surface-300 text-text-dim'
-                    return (
-                      <div key={peer.peerId} className="rounded bg-surface-200 border border-border overflow-hidden">
-                        <div className="flex items-center justify-between p-2 hover:bg-surface-300/50 transition-colors">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isStale ? 'bg-error' : peer.state === 'idle' ? 'bg-success' : 'bg-warning'}`} />
-                            <span className="text-[11px] font-mono text-text-secondary truncate">{peer.peerId.split('-')[1]}</span>
-                            <span className="text-[9px] text-text-dim">({peer.displayName})</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] text-text-dim font-bold">{(peer.reliabilityScore * 100).toFixed(0)}%</span>
-                            <span className={`text-[8px] uppercase px-1.5 py-0.5 rounded font-bold ${stateClass}`}>{peer.state}</span>
-                          </div>
-                        </div>
-                        {assignedSubtasks.length > 0 && (
-                          <div className="px-2 py-1.5 border-t border-border/40 bg-surface-300/30">
-                            <div className="text-[8px] text-text-dim font-bold mb-1">SUBTASKS ({assignedSubtasks.length}):</div>
-                            <div className="space-y-1">
-                              {assignedSubtasks.map(st => {
-                                const statusColor = st.status === 'completed' ? 'bg-success' : st.status === 'in_progress' ? 'bg-warning' : st.status === 'failed' ? 'bg-error' : 'bg-text-dim'
-                                return (
-                                  <div key={st.id} className="text-[9px] bg-surface-300 p-1.5 rounded border border-border/50 font-mono">
-                                    <div className="flex items-center gap-1 mb-1">
-                                      <span className={`inline-block w-1.5 h-1.5 rounded-full ${statusColor}`} />
-                                      <span className="text-primary-300 font-bold">{st.title}</span>
-                                      <span className="text-[8px] text-text-dim ml-auto">{st.status}</span>
-                                      {st.progress !== undefined && <span className="text-[8px] text-text-dim">{st.progress}%</span>}
-                                    </div>
-                                    <div className="text-[8px] text-text-dim ml-2.5 line-clamp-2">{st.description}</div>
-                                    {st.statusText && <div className="text-[8px] text-accent-400 ml-2.5 mt-0.5">→ {st.statusText}</div>}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })
-                }
-              </div>
-            </div>
-
-            {/* Tool Activity */}
-            <div className="py-4">
-              <div className="text-[10px] uppercase font-black text-text-dim mb-2">Tool Bridge</div>
-              <div className="space-y-1 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
-                {toolEntries.length === 0 && <div className="text-[9px] text-text-dim text-center py-2 opacity-50">Waiting for activity...</div>}
-                {toolEntries.slice(-15).reverse().map(e => (
-                  <div key={e.id} className="text-[9px] bg-surface-200 p-2 rounded border border-border/40">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-secondary-400 font-mono">@{e.workerPeerId.split('-')[1] || 'local'}</span>
-                      <span className="text-[8px] text-text-dim">{new Date(e.at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                    </div>
-                    <div className="text-primary-300 font-bold truncate">{e.tool}</div>
-                    <div className="text-[8px] text-text-dim mt-0.5 truncate opacity-70">{JSON.stringify(e.args)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
       </div>
 
       {/* Footer Input */}
-      <div className="px-3 py-3 border-t border-border bg-surface-100 flex-shrink-0 shadow-lg">
+      <div className="px-4 py-4 border-t border-border bg-surface-100 flex-shrink-0 shadow-lg">
         {speechError && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-[10px] text-error">
             <AlertCircle size={12} />
             <span>{speechError}</span>
           </div>
         )}
-        <div className="flex items-stretch gap-2">
+
+        {/* Modern Unified Input Card */}
+        <div className="relative flex flex-col bg-surface-200 border border-border rounded-2xl focus-within:border-primary-500/40 focus-within:ring-2 focus-within:ring-primary-500/10 transition-all shadow-inner group">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={modelReady ? 'Command…' : 'Initializing…'}
+            placeholder={modelReady ? 'Type your command…' : 'Initializing model…'}
             disabled={!canInteract}
-            rows={2}
-            className="min-h-[60px] flex-1 bg-surface-200 border border-border rounded-xl px-4 py-3 text-[12px] leading-relaxed text-text-primary placeholder:text-text-dim/80 focus:outline-none focus:ring-1 focus:ring-primary-500/30 focus:border-primary-500/30 transition-all resize-none disabled:opacity-50"
+            rows={3}
+            className="w-full bg-transparent border-none outline-none px-4 py-4 text-[13px] leading-relaxed text-text-primary placeholder:text-text-dim/60 focus:ring-0 resize-none min-h-[100px] disabled:opacity-50"
           />
-          <button
-            onClick={handleMicToggle}
-            disabled={!canInteract || !speechSupported}
-            title={isListening ? 'Stop voice input' : 'Start voice input'}
-            className={`h-[60px] w-[60px] flex items-center justify-center rounded-xl transition-all border ${
-              isListening
-                ? 'bg-error/20 border-error/40 text-error shadow-lg shadow-error/10'
-                : 'bg-surface-200 border-border text-text-secondary hover:text-text-primary hover:border-primary-500/30 hover:bg-surface-300/70'
-            } disabled:opacity-30`}
-          >
-            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-          </button>
-          <button onClick={handleSend} disabled={!input.trim() || !canInteract}
-            className="h-[60px] w-[60px] flex items-center justify-center rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-30 transition-all shadow-lg shadow-primary-500/20 text-white"
-          >
-            <Send size={18} />
-          </button>
-        </div>
-        <div className="mt-2 flex items-center justify-between px-1">
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 cursor-pointer group">
-              <input type="checkbox" checked={isDistributed} onChange={e => setDistributed(e.target.checked)} className="accent-primary-500 size-3 rounded" />
-              <span className={`text-[9px] uppercase font-black ${isDistributed ? 'text-primary-400' : 'text-text-dim group-hover:text-text-secondary'}`}>Distributed Mode</span>
-            </label>
-            <span className={`text-[9px] uppercase font-bold ${isListening ? 'text-error' : 'text-text-dim'}`}>
-              {isListening ? 'Listening… click mic to stop' : speechSupported ? 'Click mic to talk' : 'Voice unavailable'}
-            </span>
+
+          <div className="flex items-center justify-between px-3 py-2 border-t border-border/10 bg-surface-200/40 rounded-b-2xl">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                onClick={handleMicToggle}
+                disabled={!canInteract || !speechSupported}
+                title={isListening ? 'Stop voice input' : 'Start voice input'}
+                className={`flex items-center justify-center p-2 rounded-lg transition-all border ${isListening
+                    ? 'bg-error text-white border-error shadow-lg shadow-error/20'
+                    : 'bg-surface-300/40 border-transparent text-text-dim hover:text-text-primary hover:bg-surface-300'
+                  } disabled:opacity-30`}
+              >
+                {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+
+              <div className="h-4 w-[1px] bg-border mx-1" />
+
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-surface-300/30 rounded-md border border-border/50 text-[9px] font-black tracking-tight text-primary-400 select-none whitespace-nowrap overflow-hidden">
+                <CheckCircle2 size={10} className="text-primary-400" /> Distributed
+              </div>
+
+              <span className={`text-[9px] uppercase font-bold truncate ${isListening ? 'text-error animate-pulse' : 'text-text-dim'} hidden sm:inline-block`}>
+                {isListening ? 'Listening…' : speechSupported ? 'Voice ready' : 'Voice unavailable'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] text-text-dim font-mono uppercase tracking-tighter opacity-50 mr-1 hidden lg:inline-block">Qwen2.5-Coder</span>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || !canInteract}
+                title="Send Command"
+                className="h-10 px-4 flex items-center justify-center gap-2 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:opacity-30 transition-all shadow-lg shadow-primary-500/20 text-white font-bold text-[11px]"
+              >
+                <span>Send</span>
+                <Send size={14} />
+              </button>
+            </div>
           </div>
-          <span className="text-[8px] text-text-dim font-mono uppercase tracking-tighter">Qwen2.5-Coder (Offline)</span>
         </div>
       </div>
     </div>
