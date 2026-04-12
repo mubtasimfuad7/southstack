@@ -17,7 +17,7 @@ const IGNORED_NAMES = new Set(['.git', 'node_modules', '.DS_Store', 'dist', '.vi
 
 export class FileSystemService implements IFileSystemService {
   private rootHandle: FileSystemDirectoryHandle | null = null
-  private watchers: WatcherMap = new Map()
+  private watchers: Map<string, Set<(content: string | Uint8Array) => void>> = new Map()
 
   // ──────────────────────────────────────────────────────────
   // Project management
@@ -31,6 +31,11 @@ export class FileSystemService implements IFileSystemService {
     const tree = await this._buildTree(dirHandle, '')
     useFSStore.getState().setProjectRoot(tree)
     useFSStore.getState().setHasLocalAccess(true)
+
+    // Sync to WebContainer immediately
+    const { runtimeService } = await import('@/core/services/RuntimeService')
+    await runtimeService.syncRoot(tree)
+
     return tree
   }
 
@@ -45,6 +50,11 @@ export class FileSystemService implements IFileSystemService {
         const tree = await this._buildTree(dirHandle, '')
         useFSStore.getState().setProjectRoot(tree)
         useFSStore.getState().setHasLocalAccess(true)
+
+        // Sync to WebContainer immediately
+        const { runtimeService } = await import('@/core/services/RuntimeService')
+        await runtimeService.syncRoot(tree)
+
         return tree
       }
     }
@@ -103,17 +113,17 @@ export class FileSystemService implements IFileSystemService {
     }
 
     await syncNode(wcTree)
-    
+
     // Only update the store if the structure actually changed
     const currentRoot = useFSStore.getState().projectRoot
-    
+
     // Fast comparison for UI update (flicker prevention)
     const oldStructure = JSON.stringify(currentRoot)
     const newStructure = JSON.stringify(wcTree)
-    
+
     if (oldStructure !== newStructure) {
       useFSStore.getState().setProjectRoot(wcTree)
-      
+
       // Also notify editor of potential content changes if files were updated on disk
       const { editorService } = await import('@/core/services/EditorService')
       const syncAll = async (node: FileNode) => {
@@ -160,7 +170,7 @@ export class FileSystemService implements IFileSystemService {
   // File operations
   // ──────────────────────────────────────────────────────────
 
-  async readFile(path: string): Promise<string> {
+  async readFile(path: string): Promise<string | Uint8Array> {
     // IDB first (has our edits)
     const entry = await loadFile(path)
     if (entry) return entry.content
@@ -176,16 +186,16 @@ export class FileSystemService implements IFileSystemService {
     throw new Error(`File not found: ${path}`)
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
-    console.log(`[FileSystemService] writeFile START: path="${path}", contentLength=${content?.length || 0}`)
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
+    console.log(`[FileSystemService] writeFile START: path="${path}", contentIsString=${typeof content === 'string'}`)
     try {
       await saveFile({ path, content, lastModified: Date.now() })
       console.log(`[FileSystemService] Saved to IndexedDB: ${path}`)
       this._notifyWatchers(path, content)
-      
+
       // Write-through to runtime
       const { runtimeService } = await import('@/core/services/RuntimeService')
-      await runtimeService.writeFile(path, content)
+      await (runtimeService as any).writeFile(path, content)
       console.log(`[FileSystemService] Written to runtime: ${path}`)
 
       // Only refresh the parent directory subtree
@@ -201,9 +211,9 @@ export class FileSystemService implements IFileSystemService {
     }
   }
 
-  async createFile(path: string, content = ''): Promise<void> {
+  async createFile(path: string, content: string | Uint8Array = ''): Promise<void> {
     await saveFile({ path, content, lastModified: Date.now() })
-    
+
     const { runtimeService } = await import('@/core/services/RuntimeService')
     await runtimeService.writeFile(path, content)
 
@@ -213,7 +223,7 @@ export class FileSystemService implements IFileSystemService {
 
   async deleteFile(path: string): Promise<void> {
     await idbDelete(path)
-    
+
     const { runtimeService } = await import('@/core/services/RuntimeService')
     try {
       await runtimeService.rm(path)
@@ -247,7 +257,7 @@ export class FileSystemService implements IFileSystemService {
   // Watchers
   // ──────────────────────────────────────────────────────────
 
-  onFileChange(path: string, cb: (content: string) => void): () => void {
+  onFileChange(path: string, cb: (content: string | Uint8Array) => void): () => void {
     if (!this.watchers.has(path)) {
       this.watchers.set(path, new Set())
     }
@@ -255,7 +265,7 @@ export class FileSystemService implements IFileSystemService {
     return () => this.watchers.get(path)?.delete(cb)
   }
 
-  private _notifyWatchers(path: string, content: string): void {
+  private _notifyWatchers(path: string, content: string | Uint8Array): void {
     this.watchers.get(path)?.forEach((cb) => cb(content))
   }
 
@@ -314,7 +324,7 @@ export class FileSystemService implements IFileSystemService {
     return undefined
   }
 
-  private async _readFromHandle(root: FileSystemDirectoryHandle, path: string): Promise<string> {
+  private async _readFromHandle(root: FileSystemDirectoryHandle, path: string): Promise<string | Uint8Array> {
     const parts = path.split('/').filter(Boolean)
     let dir: FileSystemDirectoryHandle = root
     for (let i = 0; i < parts.length - 1; i++) {
@@ -322,10 +332,17 @@ export class FileSystemService implements IFileSystemService {
     }
     const fileHandle = await dir.getFileHandle(parts[parts.length - 1])
     const file = await fileHandle.getFile()
+
+    // Detect binary files
+    if (path.endsWith('.wasm')) {
+      const buffer = await file.arrayBuffer()
+      return new Uint8Array(buffer)
+    }
+
     return file.text()
   }
 
-  private async _writeToHandle(root: FileSystemDirectoryHandle, path: string, content: string): Promise<void> {
+  private async _writeToHandle(root: FileSystemDirectoryHandle, path: string, content: string | Uint8Array): Promise<void> {
     const parts = path.split('/').filter(Boolean)
     let dir: FileSystemDirectoryHandle = root
     for (let i = 0; i < parts.length - 1; i++) {
@@ -333,8 +350,8 @@ export class FileSystemService implements IFileSystemService {
     }
     const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: true })
     const writable = await fileHandle.createWritable()
-    await writable.write(content)
-    await writable.close()
+    await (writable as any).write(content)
+    await (writable as any).close()
   }
 }
 

@@ -16,7 +16,7 @@ export interface FileNode {
 
 export interface FileEntry {
   path: string
-  content: string
+  content: string | Uint8Array
   lastModified: number
 }
 

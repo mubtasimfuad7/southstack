@@ -6,10 +6,19 @@
 import { WebContainer, WebContainerProcess } from '@webcontainer/api'
 import type { FileNode } from '@/infrastructure/fs/types'
 import { fileSystemService } from './FileSystemService'
+import { toolchainService } from './ToolchainService'
 
 export class RuntimeService {
   private instance: WebContainer | null = null
   private bootPromise: Promise<WebContainer> | null = null
+
+  private dispatchBootStatus(message: string, type: 'info' | 'success' | 'error' = 'info') {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('webcontainer:boot-status', {
+        detail: { message, type }
+      }))
+    }
+  }
 
   async boot(): Promise<WebContainer> {
     if (this.instance) return this.instance
@@ -23,7 +32,28 @@ export class RuntimeService {
 
       // Boot WebContainer
       const wc = await WebContainer.boot()
-      
+
+      // Setup Toolchain (PHP, Rust, etc.)
+      try {
+        console.log('[RuntimeService] Initializing toolchain...')
+        await toolchainService.setup(wc, (msg) => this.dispatchBootStatus(msg))
+        
+        // Ensure shims have execution permissions
+        const chmod = await wc.spawn('chmod', ['+x', 
+          'node_modules/.bin/php', 
+          'node_modules/.bin/python', 
+          'node_modules/.bin/ruby',
+          'node_modules/.bin/rustc'
+        ])
+        await chmod.exit
+        
+        this.dispatchBootStatus('Toolchain Ready', 'success')
+        console.log('[RuntimeService] Toolchain ready.')
+      } catch (err) {
+        this.dispatchBootStatus(`Failed to setup toolchain: ${err}`, 'error')
+        console.error('Failed to setup toolchain', err)
+      }
+
       // Attempt to sync the initial filesystem tree into WebContainer
       try {
         const tree = await fileSystemService.getTree()
@@ -33,10 +63,6 @@ export class RuntimeService {
       } catch (err) {
         console.warn('Failed to fully mount initial FS to WebContainer', err)
       }
-
-      // Listen for local file changes and sync them to WC
-      // Note: In a complete implementation, we'd watch ALL changes.
-      // For now, this is a simplified sync.
 
       this.instance = wc
       return wc
@@ -77,9 +103,9 @@ export class RuntimeService {
 
       for (const entry of entries) {
         if (entry.name === '.webcontainer' || entry.name.startsWith('.')) continue
-        
+
         const entryPath = path ? `${path}/${entry.name}` : entry.name
-        
+
         if (entry.isDirectory()) {
           const subTree = await this.snapshotWebContainer(entryPath)
           if (subTree) children.push(subTree)
@@ -114,7 +140,7 @@ export class RuntimeService {
       if (targetPath) {
         await wc.fs.mkdir(targetPath, { recursive: true })
       }
-      
+
       // Mount all children
       for (const child of node.children ?? []) {
         // Build child path: if targetPath is empty, it's just child.name
@@ -135,12 +161,12 @@ export class RuntimeService {
   // Simplified one-off command execution for the agent tool
   async executeCommand(command: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const wc = await this.boot()
-    
+
     // We launch it via jsh to handle complex stuff like piping
     const process = await wc.spawn('jsh', ['-c', command], {
       cwd: '/'
     })
-    
+
     let stdout = ''
     let stderr = ''
 

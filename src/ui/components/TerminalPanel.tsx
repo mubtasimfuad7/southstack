@@ -88,6 +88,14 @@ export function TerminalPanel() {
       term.write('\r\n  \x1b[35m▸\x1b[0m \x1b[36mSouthstack Terminal\x1b[0m\r\n')
       term.write('  \x1b[90mBooting WebContainer...\x1b[0m\r\n')
 
+      const statusHandler = (e: Event) => {
+        const { message, type } = (e as CustomEvent).detail
+        const color = type === 'success' ? '\x1b[32m' : type === 'error' ? '\x1b[31m' : '\x1b[36m'
+        const symbol = type === 'success' ? '✓' : type === 'error' ? '✖' : '▸'
+        term.write(`  ${color}${symbol} ${message}\x1b[0m\r\n`)
+      }
+      window.addEventListener('webcontainer:boot-status', statusHandler)
+
       try {
         const shellProcess = await runtimeService.spawnShell()
         term.write('\x1b[32m  ✓ WebContainer Ready (Node.js, npm)\x1b[0m\r\n\r\n')
@@ -124,12 +132,18 @@ export function TerminalPanel() {
       }
 
       setInitialized(true)
+
+      // Store handler for cleanup
+      ;(init as any).statusHandler = statusHandler
     }
 
     init()
 
     return () => {
       mounted = false
+      if ((init as any).statusHandler) {
+        window.removeEventListener('webcontainer:boot-status', (init as any).statusHandler)
+      }
     }
   }, [isOpen])
 
