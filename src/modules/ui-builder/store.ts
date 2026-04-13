@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { DesignDocument } from './core/DesignDocument';
-import { DesignNode, Decorator, DecoratorTypes } from './core/DesignNode';
+import { DesignNode, DecoratorState } from './core/DesignNode';
 import { NodeType } from './core/NodeTypes';
 
 interface UIBuilderState {
@@ -8,6 +8,7 @@ interface UIBuilderState {
   selectedNodeIds: string[];
   hoveredNodeId: string | null;
   viewport: { zoom: number, scrollX: number, scrollY: number };
+  peerStates?: any;
   
   setDocument: (doc: DesignDocument) => void;
   selectNodes: (ids: string[], multiple?: boolean) => void;
@@ -16,7 +17,7 @@ interface UIBuilderState {
   
   // Pattern-based actions
   updateNode: (id: string, patch: Partial<DesignNode>) => void;
-  addDecorator: (nodeId: string, decorator: Decorator) => void;
+  addDecorator: (nodeId: string, decorator: DecoratorState) => void;
   updateDecorator: (nodeId: string, decoratorId: string, config: any) => void;
 }
 
@@ -31,9 +32,11 @@ const initialDoc: DesignDocument = {
         name: 'Main Container',
         type: NodeType.FRAME,
         x: 100, y: 100, width: 400, height: 300,
+        rotation: 0,
+        attributes: {},
         decorators: [
-          { id: 'd1', type: 'background', config: { color: {r:255,g:255,b:255,a:1} }, enabled: true },
-          { id: 'd2', type: 'border', config: { radius: 20, color: {r:0,g:0,b:0,a:0.1}, weight: 1 }, enabled: true }
+          { id: 'd1', type: 'background', config: { color: '#ffffff' }, enabled: true },
+          { id: 'd2', type: 'layout', config: { x: 100, y: 100, width: 400, height: 300 }, enabled: true }
         ],
         children: [
           {
@@ -41,10 +44,13 @@ const initialDoc: DesignDocument = {
             name: 'Heading Wrap',
             type: NodeType.TEXT,
             x: 40, y: 40, width: 320, height: 50,
-            decorators: [
-              { id: 'd3', type: 'text-style', config: { fontSize: 24, fontWeight: 'bold', color: {r:59,g:130,b:246,a:1}, align: 'CENTER' }, enabled: true }
-            ],
+            rotation: 0,
+            attributes: {},
             content: 'Hello Patterns',
+            decorators: [
+              { id: 'd3', type: 'text-align', config: { align: 'center' }, enabled: true },
+              { id: 'd4', type: 'text-color', config: { color: '#3b82f6' }, enabled: true }
+            ],
             children: []
           }
         ]

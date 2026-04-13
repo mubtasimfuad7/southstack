@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DesignNode } from '../core/DesignNode';
 import { useUIBuilderStore } from '../store';
 import { Plus, Hash } from 'lucide-react';
+import { DecoratorRegistry } from '../core/DecoratorRegistry';
 
 export const PropertyInspector: React.FC<{ node: DesignNode }> = ({ node }) => {
   const updateNode = useUIBuilderStore(state => state.updateNode);
+  const updateDecorator = useUIBuilderStore(state => state.updateDecorator);
   const triggerRender = useState(0)[1]; // Force refresh helper
 
   return (
@@ -29,22 +31,27 @@ export const PropertyInspector: React.FC<{ node: DesignNode }> = ({ node }) => {
           <Plus size={14} className="text-text-dim cursor-pointer hover:text-text-primary" />
         </div>
 
-        {node.decorators.map(dec => (
-          <div key={dec.id} className="bg-surface-200/50 border border-border rounded-lg p-3">
-            <div className="mb-2 text-[10px] font-bold uppercase text-text-secondary">{dec.type.replace('-', ' ')}</div>
-            
-            {/* The Decorator renders its own controls and handles its own events */}
-            {dec.renderUI(node, () => {
-              // Trigger a store update to refresh the document
-              updateNode(node.id, {}); 
-            })}
-          </div>
-        ))}
+        {node.decorators.map(decState => {
+          const decorator = DecoratorRegistry.get(decState.type);
+          if (!decorator) return null;
+
+          return (
+            <div key={decState.id} className="bg-surface-200/50 border border-border rounded-lg p-3">
+              <div className="mb-2 text-[10px] font-bold uppercase text-text-secondary">{decState.type.replace('-', ' ')}</div>
+
+              {/* The Decorator renders its own controls and handles its own events */}
+              {decorator.renderUI(node, decState.config, (newConfig) => {
+                // Trigger a store update to refresh the document
+                updateDecorator(node.id, decState.id, newConfig);
+              })}
+            </div>
+          );
+        })}
 
         {node.type === 'TEXT' && (
           <div className="space-y-3">
             <span className="text-[9px] uppercase font-bold text-text-dim">Content</span>
-            <textarea 
+            <textarea
               className="bg-surface-200 border border-border w-full rounded-lg p-2 text-[11px] outline-none"
               value={node.content}
               onChange={(e) => updateNode(node.id, { content: e.target.value })}
@@ -55,10 +62,6 @@ export const PropertyInspector: React.FC<{ node: DesignNode }> = ({ node }) => {
     </div>
   );
 };
-
-function useState(arg0: number): [any, any] {
-  return React.useState(arg0);
-}
 
 const PropInput = ({ label, value, onChange }: any) => (
   <div className="flex flex-col gap-1">
