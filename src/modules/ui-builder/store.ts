@@ -10,13 +10,30 @@ interface UIBuilderState {
   viewport: { zoom: number, scrollX: number, scrollY: number };
   peerStates?: any;
   
+  // Collaboration State
+  hostPeerId: string | null;
+  hasEditAccess: boolean;
+  localBackupDocument: DesignDocument | null;
+  nodeLocks: Record<string, string>; // nodeId -> lockedByPeerId
+  allowedPeers: string[];
+  pendingEditRequests: string[];
+
   setDocument: (doc: DesignDocument) => void;
   selectNodes: (ids: string[], multiple?: boolean) => void;
   setHoveredNode: (id: string | null) => void;
   setViewport: (patch: any) => void;
   
+  // Collaboration Actions
+  joinSession: (peerId: string | null, isHost: boolean) => void;
+  setEditAccess: (hasAccess: boolean) => void;
+  setNodeLock: (nodeId: string, lockedByPeerId: string | null) => void;
+  addEditRequest: (peerId: string) => void;
+  resolveEditRequest: (peerId: string, allowed: boolean) => void;
+  
   // Pattern-based actions
   updateNode: (id: string, patch: Partial<DesignNode>) => void;
+  addNode: (node: DesignNode, parentId?: string) => void;
+  deleteNode: (nodeId: string) => void;
   addDecorator: (nodeId: string, decorator: DecoratorState) => void;
   updateDecorator: (nodeId: string, decoratorId: string, config: any) => void;
 }
@@ -64,9 +81,64 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   selectedNodeIds: [],
   hoveredNodeId: null,
   viewport: { zoom: 1, scrollX: 0, scrollY: 0 },
+  
+  // Collaboration Init
+  hostPeerId: null,
+  hasEditAccess: true, // true by default when working locally
+  localBackupDocument: null,
+  nodeLocks: {},
+  allowedPeers: [],
+  pendingEditRequests: [],
 
   setDocument: (document) => set({ document }),
   setViewport: (patch) => set((state) => ({ viewport: { ...state.viewport, ...patch } })),
+  
+  // Collaboration Implementations
+  joinSession: (peerId, isHost) => set(state => {
+    let nextDoc = state.document;
+    let nextBackup = state.localBackupDocument;
+
+    if (peerId !== null && state.hostPeerId === null) {
+      // Joining a session: back up local doc
+      nextBackup = state.document;
+    } else if (peerId === null && state.hostPeerId !== null) {
+      // Leaving a session: restore local doc
+      if (state.localBackupDocument) {
+        nextDoc = state.localBackupDocument;
+      }
+      nextBackup = null;
+    }
+
+    return { 
+      hostPeerId: peerId, 
+      hasEditAccess: isHost, 
+      document: nextDoc,
+      localBackupDocument: nextBackup,
+      selectedNodeIds: [],
+      nodeLocks: {},
+      allowedPeers: [],
+      pendingEditRequests: []
+    };
+  }),
+  setEditAccess: (hasAccess) => set({ hasEditAccess: hasAccess }),
+  setNodeLock: (nodeId, lockedByPeerId) => set(state => {
+    const nextLocks = { ...state.nodeLocks };
+    if (lockedByPeerId) nextLocks[nodeId] = lockedByPeerId;
+    else delete nextLocks[nodeId];
+    return { nodeLocks: nextLocks };
+  }),
+  addEditRequest: (peerId) => set(state => ({
+    pendingEditRequests: state.pendingEditRequests.includes(peerId) 
+      ? state.pendingEditRequests 
+      : [...state.pendingEditRequests, peerId]
+  })),
+  resolveEditRequest: (peerId, allowed) => set(state => ({
+    pendingEditRequests: state.pendingEditRequests.filter(id => id !== peerId),
+    allowedPeers: allowed && !state.allowedPeers.includes(peerId) 
+      ? [...state.allowedPeers, peerId] 
+      : state.allowedPeers
+  })),
+
   selectNodes: (ids, multiple = false) => {
     if (multiple) {
       const next = new Set(get().selectedNodeIds);
@@ -90,6 +162,14 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
     };
     findAndUpdate(doc.pages[0].nodes);
     set({ document: doc });
+  },
+
+  addNode: (node, parentId) => {
+    // stub to fix TS error, full implementation out of scope for now
+  },
+  
+  deleteNode: (nodeId) => {
+    // stub to fix TS error, full implementation out of scope for now
   },
 
   addDecorator: (nodeId, decorator) => {

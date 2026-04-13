@@ -3,14 +3,15 @@ import { CanvasViewport } from './CanvasViewport';
 import { useUIBuilderStore } from '../store';
 import { EditorAPI } from '../core/EditorAPI';
 import { PropertyInspector } from './PropertyRegistry';
-import { 
-  MousePointer2, 
-  Square, 
-  Type, 
-  Layers, 
-  Plus, 
-  Minus, 
-  ChevronRight, 
+import { CollaborationPanel } from './CollaborationPanel';
+import {
+  MousePointer2,
+  Square,
+  Type,
+  Layers,
+  Plus,
+  Minus,
+  ChevronRight,
   ChevronDown,
   Grid
 } from 'lucide-react';
@@ -23,8 +24,8 @@ export const BuilderRoot: React.FC = () => {
     EditorAPI.init();
   }, []);
 
-  const selectedNode = selectedNodeIds.length === 1 
-    ? findNodeById(document.pages[0].nodes, selectedNodeIds[0]) 
+  const selectedNode = selectedNodeIds.length === 1
+    ? findNodeById(document.pages[0].nodes, selectedNodeIds[0])
     : null;
 
   function findNodeById(nodes: any[], id: string): any | null {
@@ -56,13 +57,15 @@ export const BuilderRoot: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center bg-surface-200 rounded-md border border-border px-2 py-1 gap-2">
-             <button onClick={() => setViewport({ zoom: viewport.zoom * 0.8 })}><Minus size={12} /></button>
-             <span className="text-[10px] font-mono min-w-[40px] text-center">{Math.round(viewport.zoom * 100)}%</span>
-             <button onClick={() => setViewport({ zoom: viewport.zoom * 1.2 })}><Plus size={12} /></button>
+            <button onClick={() => setViewport({ zoom: viewport.zoom * 0.8 })}><Minus size={12} /></button>
+            <span className="text-[10px] font-mono min-w-[40px] text-center">{Math.round(viewport.zoom * 100)}%</span>
+            <button onClick={() => setViewport({ zoom: viewport.zoom * 1.2 })}><Plus size={12} /></button>
           </div>
           <button className="px-4 py-1.5 bg-primary-600 hover:bg-primary-500 text-white rounded-md text-[11px] font-bold">Generate with AI</button>
         </div>
       </div>
+
+      <CollaborationPanel />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Layers */}
@@ -107,7 +110,7 @@ const LayerItem = ({ node, selected, depth = 0, onSelect }: any) => {
   const hasChildren = node.children && node.children.length > 0;
   return (
     <div className="space-y-0.5">
-      <div 
+      <div
         className={`flex items-center h-7 px-2 rounded-md cursor-pointer ${selected ? 'bg-primary-600/10 text-primary-300' : 'hover:bg-surface-200 text-text-dim'}`}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={() => onSelect(node.id)}

@@ -3,19 +3,22 @@ import { useUIBuilderStore } from '../store';
 import { CanvasRenderer } from '../renderer/CanvasRenderer';
 import { DesignNode } from '../core/DesignNode';
 import { EditorAPI } from '../core/EditorAPI';
+import { peerNetworkManager } from '@/core/network/PeerNetworkManager';
 
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export const CanvasViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CanvasRenderer>(new CanvasRenderer());
-  
-  const { 
-    document, 
-    selectedNodeIds, 
-    hoveredNodeId, 
+
+  const {
+    document,
+    selectedNodeIds,
+    hoveredNodeId,
     peerStates,
     viewport,
+    nodeLocks,
+    hasEditAccess,
     setViewport
   } = useUIBuilderStore();
 
@@ -38,10 +41,12 @@ export const CanvasViewport: React.FC = () => {
   const render = () => {
     if (canvasRef.current) {
       rendererRef.current.render(
-        document, 
-        canvasRef.current, 
-        selectedNodeIds, 
-        viewport
+        document,
+        canvasRef.current,
+        selectedNodeIds,
+        viewport,
+        nodeLocks,
+        peerNetworkManager.getLocalPeerId()
       );
     }
   };
@@ -54,7 +59,7 @@ export const CanvasViewport: React.FC = () => {
 
   useEffect(() => {
     render();
-  }, [document, selectedNodeIds, hoveredNodeId, peerStates, viewport]);
+  }, [document, selectedNodeIds, hoveredNodeId, peerStates, viewport, nodeLocks]);
 
   const screenToWorld = (screenX: number, screenY: number) => {
     const canvas = canvasRef.current;
@@ -67,7 +72,10 @@ export const CanvasViewport: React.FC = () => {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const pos = screenToWorld(e.clientX, e.clientY);
-    EditorAPI.moveCursor(pos.x, pos.y);
+
+    if (hasEditAccess) {
+      EditorAPI.moveCursor(pos.x, pos.y);
+    }
 
     if (isPanning.current) {
       const dx = e.clientX - dragStartPos.current.x;
@@ -80,7 +88,7 @@ export const CanvasViewport: React.FC = () => {
       return;
     }
 
-    if (activeResizeHandle.current && selectedNodeIds.length === 1) {
+    if (activeResizeHandle.current && selectedNodeIds.length === 1 && hasEditAccess) {
       const nodeInit = initialNodePos.current[0];
       const dx = pos.x - dragStartPos.current.x;
       const dy = pos.y - dragStartPos.current.y;
@@ -105,7 +113,7 @@ export const CanvasViewport: React.FC = () => {
       return;
     }
 
-    if (isDragging.current && selectedNodeIds.length > 0) {
+    if (isDragging.current && selectedNodeIds.length > 0 && hasEditAccess) {
       const dx = pos.x - dragStartPos.current.x;
       const dy = pos.y - dragStartPos.current.y;
       initialNodePos.current.forEach(nodeInit => {
@@ -123,19 +131,24 @@ export const CanvasViewport: React.FC = () => {
     }
   };
 
+  const isLockedForLocal = (node: DesignNode): boolean => {
+    const holder = nodeLocks[node.id];
+    return holder && holder !== peerNetworkManager.getLocalPeerId() ? true : false;
+  };
+
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1 || (e.button === 0 && e.shiftKey)) { 
+    if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
       isPanning.current = true;
       dragStartPos.current = { x: e.clientX, y: e.clientY };
       return;
     }
 
     const pos = screenToWorld(e.clientX, e.clientY);
-    
+
     // Check for resize handles
-    if (selectedNodeIds.length === 1) {
+    if (selectedNodeIds.length === 1 && hasEditAccess) {
       const node = findNodeById(document.pages[0].nodes, selectedNodeIds[0]);
-      if (node) {
+      if (node && !isLockedForLocal(node)) {
         const handle = getResizeHandleAt(node, pos.x, pos.y);
         if (handle) {
           activeResizeHandle.current = handle;
@@ -148,6 +161,11 @@ export const CanvasViewport: React.FC = () => {
 
     const node = findNodeAt(document.pages[0].nodes, pos.x, pos.y);
     if (node) {
+      if (isLockedForLocal(node) || !hasEditAccess) {
+        EditorAPI.select(hasEditAccess ? [] : [node.id]); // Just read-only select if no access
+        return;
+      }
+
       if (!selectedNodeIds.includes(node.id)) {
         EditorAPI.select([node.id], e.metaKey || e.ctrlKey);
       }
@@ -173,7 +191,7 @@ export const CanvasViewport: React.FC = () => {
   const getResizeHandleAt = (node: DesignNode, worldX: number, worldY: number): ResizeHandle | null => {
     const threshold = 10 / viewport.zoom;
     const nx = node.x, ny = node.y, nw = node.width, nh = node.height;
-    
+
     if (Math.abs(worldX - nx) < threshold && Math.abs(worldY - ny) < threshold) return 'nw';
     if (Math.abs(worldX - (nx + nw)) < threshold && Math.abs(worldY - ny) < threshold) return 'ne';
     if (Math.abs(worldX - nx) < threshold && Math.abs(worldY - (ny + nh)) < threshold) return 'sw';
@@ -182,7 +200,7 @@ export const CanvasViewport: React.FC = () => {
     if (Math.abs(worldX - (nx + nw / 2)) < threshold && Math.abs(worldY - (ny + nh)) < threshold) return 's';
     if (Math.abs(worldX - nx) < threshold && Math.abs(worldY - (ny + nh / 2)) < threshold) return 'w';
     if (Math.abs(worldX - (nx + nw)) < threshold && Math.abs(worldY - (ny + nh / 2)) < threshold) return 'e';
-    
+
     return null;
   };
 

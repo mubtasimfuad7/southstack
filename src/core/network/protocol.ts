@@ -214,11 +214,14 @@ export interface UICursorPayload {
 }
 
 export interface UIDocChangePayload {
-  type: 'update' | 'add' | 'delete'
+  type: 'update' | 'add' | 'delete' | 'add-decorator' | 'update-decorator'
   nodeId?: string
   patch?: Record<string, any>
   node?: any
   parentId?: string
+  decorator?: any
+  decoratorId?: string
+  config?: any
 }
 
 // ── Factory ────────────────────────────────────────────────
