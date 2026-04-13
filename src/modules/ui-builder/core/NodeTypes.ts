@@ -1,0 +1,12 @@
+export enum NodeType {
+  FRAME = 'FRAME',
+  GROUP = 'GROUP',
+  RECTANGLE = 'RECTANGLE',
+  TEXT = 'TEXT',
+  IMAGE = 'IMAGE',
+  VIDEO = 'VIDEO',
+  SVG = 'SVG',
+  ICON = 'ICON',
+  COMPONENT = 'COMPONENT',
+  INSTANCE = 'INSTANCE',
+}

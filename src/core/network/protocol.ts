@@ -37,6 +37,9 @@ export type MessageType =
   | 'tool/response'
   | 'tool/error'
   | 'sync/peer_snapshot'
+  | 'ui/peer-state'
+  | 'ui/cursor'
+  | 'ui/doc-change'
 
 // ── Peer state ─────────────────────────────────────────────
 
@@ -194,6 +197,28 @@ export interface PeerSnapshotPayload {
     lastHeartbeat: number
     reliabilityScore: number
   }>
+}
+
+// ── UI Builder types ───────────────────────────────────────
+
+export interface UIPeerStatePayload {
+  selection: string[]
+  hoveredNodeId: string | null
+  userName?: string
+  color?: string
+}
+
+export interface UICursorPayload {
+  x: number
+  y: number
+}
+
+export interface UIDocChangePayload {
+  type: 'update' | 'add' | 'delete'
+  nodeId?: string
+  patch?: Record<string, any>
+  node?: any
+  parentId?: string
 }
 
 // ── Factory ────────────────────────────────────────────────

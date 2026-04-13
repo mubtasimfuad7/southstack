@@ -2,7 +2,7 @@
 // UI LAYER: MenuBar — top bar with project open/sync actions
 // ============================================================
 
-import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck, Network } from 'lucide-react'
+import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck, Layout } from 'lucide-react'
 import { useFSStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'
@@ -10,11 +10,13 @@ import { editorService } from '@/core/services/EditorService'
 interface MenuBarProps {
   onToggleAgent: () => void
   onToggleTerminal: () => void
+  onToggleUIBuilder: () => void
   agentPanelOpen: boolean
   terminalOpen: boolean
+  uiBuilderOpen: boolean
 }
 
-export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, terminalOpen }: MenuBarProps) {
+export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, agentPanelOpen, terminalOpen, uiBuilderOpen }: MenuBarProps) {
   const { setProjectRoot, setLoading, setSyncing, setHasLocalAccess, isSyncing, isLoading } = useFSStore()
 
   async function handleOpenProject() {
@@ -93,6 +95,16 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, agentPanelOpen, termi
             </>
           )}
         </div>
+
+        <button
+          onClick={onToggleUIBuilder}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${uiBuilderOpen ? 'text-secondary-400 bg-secondary-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+            }`}
+          title="Toggle UI Builder"
+        >
+          <Layout size={13} />
+          UI Builder
+        </button>
 
         <button
           onClick={onToggleTerminal}

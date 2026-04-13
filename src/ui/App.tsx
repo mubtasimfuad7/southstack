@@ -17,12 +17,14 @@ import { runtimeService } from '@/core/services/RuntimeService'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { RestorePrompt } from './components/RestorePrompt'
 import { loadMeta } from '@/infrastructure/fs/idb-storage'
+import { BuilderRoot } from '@/modules/ui-builder/ui/BuilderRoot'
 
 export function App() {
   const { agentPanelOpen, setAgentPanelOpen } = useAgentStore()
   const [showRestore, setShowRestore] = useState(false)
   const { isOpen: terminalOpen, setOpen: setTerminalOpen } = useTerminalStore()
   const { projectRoot } = useFSStore()
+  const [uiBuilderOpen, setUiBuilderOpen] = useState(false)
 
   // Sync projectRoot to WebContainer
   useEffect(() => {
@@ -92,16 +94,16 @@ export function App() {
     <EditorPane />
   )
 
-  const rightPanels = agentPanelOpen ? <AgentPanel /> : null
-
   return (
-    <div className="flex flex-col h-screen w-screen bg-surface-400 overflow-hidden">
+    <div className="flex flex-col h-screen w-screen bg-surface-400 overflow-hidden relative">
       {/* Top menu bar */}
       <MenuBar
         onToggleAgent={() => setAgentPanelOpen(!agentPanelOpen)}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
+        onToggleUIBuilder={() => setUiBuilderOpen(!uiBuilderOpen)}
         agentPanelOpen={agentPanelOpen}
         terminalOpen={terminalOpen}
+        uiBuilderOpen={uiBuilderOpen}
       />
 
       {showRestore && (
@@ -121,7 +123,6 @@ export function App() {
               <HorizontalSplit
                 left={centerColumn}
                 right={<AgentPanel />}
-                // Use a large pixel value for initial width of the center column
                 initialLeftWidth={window.innerWidth > 1200 ? window.innerWidth - 450 : 800}
                 minLeft={400}
                 maxLeft={window.innerWidth - 300}
@@ -135,6 +136,11 @@ export function App() {
           maxLeft={450}
         />
       </div>
+
+      {/* UI Builder Overlay */}
+      {uiBuilderOpen && (
+        <BuilderRoot />
+      )}
     </div>
   )
 }
