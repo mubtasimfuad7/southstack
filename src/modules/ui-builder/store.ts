@@ -16,6 +16,7 @@ interface UIBuilderState {
   pendingEditRequests: string[];
   peerStates: Record<string, any>;
   nodeLocks: Record<string, string>;
+  allowedPeers: string[];
 
   setDocument: (doc: DesignDocument) => void;
   selectNodes: (ids: string[], multiple?: boolean) => void;
@@ -25,6 +26,7 @@ interface UIBuilderState {
   setActiveTool: (tool: string) => void;
   addNode: (node: any, parentId?: string | null) => void;
   updateNode: (id: string, patch: any) => void;
+  addDecorator: (nodeId: string, decorator: any) => void;
   updateDecorator: (nodeId: string, decoratorId: string, patch: any) => void;
   deleteNode: (id: string) => void;
   findNode: (id: string) => any | null;
@@ -32,7 +34,12 @@ interface UIBuilderState {
   groupNodes: (ids: string[]) => void;
   ungroupNode: (id: string) => void;
   reorderNode: (id: string, dir: 'up' | 'down') => void;
-  moveNodeToGroup: (nodeId: string, targetId: string | null) => void;
+  // Collaboration
+  joinSession: (hostPeerId: string | null, clearLocal: boolean) => void;
+  setEditAccess: (hasAccess: boolean) => void;
+  addEditRequest: (peerId: string) => void;
+  resolveEditRequest: (peerId: string, approved: boolean) => void;
+  setNodeLock: (nodeId: string, peerId: string | null) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -210,6 +217,7 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   pendingEditRequests: [],
   peerStates: {},
   nodeLocks: {},
+  allowedPeers: [],
 
   setDocument: (document) => {
     // Recompute styles whenever a new document is set
@@ -221,6 +229,38 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   setActiveNavigation: (activeLayoutId, activePageId) => set({ activeLayoutId, activePageId, selectedNodeIds: [] }),
   setActiveTool: (activeTool) => set({ activeTool }),
   setHoveredNode: (hoveredNodeId) => set({ hoveredNodeId }),
+  selectNodes: (ids, multiple) => set((state) => {
+    if (multiple) {
+      const newSelection = [...state.selectedNodeIds];
+      ids.forEach(id => {
+        if (!newSelection.includes(id)) newSelection.push(id);
+        else newSelection.splice(newSelection.indexOf(id), 1);
+      });
+      return { selectedNodeIds: newSelection };
+    }
+    return { selectedNodeIds: ids };
+  }),
+
+  // Collaboration
+  joinSession: (hostPeerId, clearLocal) => set((state) => {
+    if (clearLocal) {
+      return { hostPeerId, hasEditAccess: !hostPeerId, nodeLocks: {}, pendingEditRequests: [] };
+    }
+    return { hostPeerId, hasEditAccess: !hostPeerId };
+  }),
+  setEditAccess: (hasEditAccess) => set({ hasEditAccess }),
+  addEditRequest: (peerId) => set((state) => ({
+    pendingEditRequests: [...state.pendingEditRequests, peerId]
+  })),
+  resolveEditRequest: (peerId, approved) => set((state) => ({
+    pendingEditRequests: state.pendingEditRequests.filter(pid => pid !== peerId)
+  })),
+  setNodeLock: (nodeId, peerId) => set((state) => {
+    const nodeLocks = { ...state.nodeLocks };
+    if (peerId) nodeLocks[nodeId] = peerId;
+    else delete nodeLocks[nodeId];
+    return { nodeLocks };
+  }),
 
   addNode: (node, parentId) => set((state) => {
     const doc = { ...state.document };
@@ -239,6 +279,17 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
     }
     const parent = parentId ? state.findNode(parentId) : undefined;
     NodeFactory.computeStyles(node, parent);
+    return { document: doc };
+  }),
+
+  addDecorator: (nodeId, decorator) => set((state) => {
+    const doc = { ...state.document };
+    const node = state.findNode(nodeId);
+    if (node) {
+      if (!node.decorators) node.decorators = [];
+      node.decorators.push(decorator);
+      NodeFactory.computeStyles(node, state.getParentNode(nodeId));
+    }
     return { document: doc };
   }),
 
@@ -293,17 +344,6 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
     return { document: doc, selectedNodeIds: state.selectedNodeIds.filter(sid => sid !== id) };
   }),
 
-  selectNodes: (ids, multiple) => set((state) => {
-    if (!multiple) return { selectedNodeIds: ids };
-    if (ids.length === 0) return { selectedNodeIds: [] };
-    const firstId = ids[0];
-    const parent = state.getParentNode(firstId);
-    const validIds = ids.filter(id => {
-      const p = state.getParentNode(id);
-      return (p?.id === parent?.id);
-    });
-    return { selectedNodeIds: validIds };
-  }),
 
   groupNodes: (ids) => set((state) => {
     if (ids.length < 2) return state;

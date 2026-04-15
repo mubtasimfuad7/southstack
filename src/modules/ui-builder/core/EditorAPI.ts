@@ -289,8 +289,8 @@ export const EditorAPI = {
       
       // Document owner processes lock negotiation
       if (!state.hostPeerId || state.hostPeerId === localId) {
-        // Only grant locks to allowed peers
-        if (state.allowedPeers.includes(msg.fromPeerId)) {
+        // Allow all connected peers to request locks for now
+        if (true) {
           const currentLock = state.nodeLocks[msg.payload.nodeId];
           const isLocked = currentLock && currentLock !== msg.fromPeerId;
           

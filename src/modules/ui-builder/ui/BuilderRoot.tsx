@@ -4,6 +4,8 @@ import { useUIBuilderStore } from '../store';
 import { EditorAPI } from '../core/EditorAPI';
 import { PropertyInspector } from './PropertyRegistry';
 import { CollaborationPanel } from './CollaborationPanel';
+import { AiCommandBar } from './AiCommandBar';
+import { uiAiManager } from '../ai/UiAiManager';
 import { NodeFactory } from '../core/NodeFactory';
 import { NodeType } from '../core/NodeTypes';
 import {
@@ -37,7 +39,10 @@ export const BuilderRoot: React.FC = () => {
     findNode, addPage, activeTool, setActiveTool, groupNodes, ungroupNode, reorderNode
   } = useUIBuilderStore();
 
-  useEffect(() => { EditorAPI.init(); }, []);
+  useEffect(() => {
+    EditorAPI.init();
+    uiAiManager.init();
+  }, []);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -79,6 +84,7 @@ export const BuilderRoot: React.FC = () => {
           <div className="w-6 h-6 bg-violet-600 rounded flex items-center justify-center shrink-0">
             <LayoutGrid size={14} className="text-white" />
           </div>
+          <AiCommandBar />
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-xs font-semibold truncate">{currentLayout.name}</span>
             <span className="text-slate-600">/</span>
