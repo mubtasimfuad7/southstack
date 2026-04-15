@@ -36,7 +36,8 @@ export class EditorController {
   }
 
   deleteNode(id: string): void {
-    for (const page of this.document.pages) {
+    const pages = this.document.layouts?.[0]?.pages ?? [];
+    for (const page of pages) {
       const index = page.nodes.findIndex(n => n.id === id);
       if (index !== -1) {
         page.nodes.splice(index, 1);
@@ -67,7 +68,8 @@ export class EditorController {
   }
 
   private findNode(id: string): DesignNode | null {
-    for (const page of this.document.pages) {
+    const pages = this.document.layouts?.[0]?.pages ?? [];
+    for (const page of pages) {
       const found = this.findInNodes(page.nodes, id);
       if (found) return found;
     }

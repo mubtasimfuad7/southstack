@@ -29,7 +29,7 @@ export abstract class BaseDecorator {
   /**
    * Logic: Modifies the attribute bag based on state.
    */
-  abstract decorate(node: DesignNode, config: any, attributes: CSSAttributes): void;
+  abstract decorate(node: DesignNode, config: any, attributes: CSSAttributes, parent?: DesignNode): void;
 
   /**
    * UI: Renders controls for this decorator.

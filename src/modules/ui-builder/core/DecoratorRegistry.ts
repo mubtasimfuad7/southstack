@@ -2,6 +2,8 @@ import { BaseDecorator } from './DesignNode';
 import { BackgroundDecorator } from './decorators/BackgroundDecorator';
 import { LayoutDecorator } from './decorators/LayoutDecorator';
 import { TextColorDecorator, TextAlignDecorator } from './decorators/TextDecorators';
+import { StyleDecorator } from './decorators/StyleDecorator';
+import { MediaDecorator } from './decorators/MediaDecorator';
 
 class DecoratorRegistryImpl {
   private decorators: Map<string, BaseDecorator> = new Map();
@@ -11,6 +13,8 @@ class DecoratorRegistryImpl {
     this.register(new LayoutDecorator());
     this.register(new TextColorDecorator());
     this.register(new TextAlignDecorator());
+    this.register(new StyleDecorator());
+    this.register(new MediaDecorator());
   }
 
   register(decorator: BaseDecorator) {

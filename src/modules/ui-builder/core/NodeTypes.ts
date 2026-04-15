@@ -3,6 +3,7 @@ export enum NodeType {
   GROUP = 'GROUP',
   RECTANGLE = 'RECTANGLE',
   TEXT = 'TEXT',
+  VECTOR = 'VECTOR',
   IMAGE = 'IMAGE',
   VIDEO = 'VIDEO',
   SVG = 'SVG',

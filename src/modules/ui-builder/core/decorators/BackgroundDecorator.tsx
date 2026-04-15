@@ -4,7 +4,7 @@ import { BaseDecorator, CSSAttributes, DesignNode } from '../DesignNode';
 export class BackgroundDecorator extends BaseDecorator {
   type = 'background';
 
-  decorate(node: DesignNode, config: any, attributes: CSSAttributes): void {
+  decorate(node: DesignNode, config: any, attributes: CSSAttributes, parent?: DesignNode): void {
     attributes.backgroundColor = config.color || '#ffffff';
   }
 

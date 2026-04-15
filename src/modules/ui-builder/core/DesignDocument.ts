@@ -6,8 +6,14 @@ export interface Page {
   nodes: DesignNode[];
 }
 
-export interface DesignDocument {
+export interface Layout {
   id: string;
   name: string;
   pages: Page[];
+}
+
+export interface DesignDocument {
+  id: string;
+  name: string;
+  layouts: Layout[];
 }
