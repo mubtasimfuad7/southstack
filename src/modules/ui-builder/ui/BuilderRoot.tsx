@@ -4,6 +4,7 @@ import { useUIBuilderStore } from '../store';
 import { EditorAPI } from '../core/EditorAPI';
 import { PropertyInspector } from './PropertyRegistry';
 import { CollaborationPanel } from './CollaborationPanel';
+import { AICopilotPanel } from './AICopilotPanel';
 import { NodeFactory } from '../core/NodeFactory';
 import { NodeType } from '../core/NodeTypes';
 import {
@@ -30,7 +31,7 @@ interface CtxMenu { nodeId: string; nodeType: string; x: number; y: number; }
 interface DragInfo { nodeId: string; overNodeId: string | null; pos: 'above' | 'below' | 'into' | null; }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
-export const BuilderRoot: React.FC = () => {
+export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const {
     document, selectedNodeIds,
     activeLayoutId, activePageId, setActiveNavigation,
@@ -85,9 +86,18 @@ export const BuilderRoot: React.FC = () => {
             <span className="text-xs font-medium text-slate-400 truncate tracking-tight">{currentPage.name}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-[10px] font-bold text-violet-400 bg-violet-400/10 px-2 py-0.5 rounded border border-violet-400/20">Design Mode</div>
+        <div className="flex items-center gap-2">
+          <div className="text-[10px] font-bold text-violet-400 bg-violet-400/10 px-2 py-0.5 rounded border border-violet-400/20 mr-2">Design Mode</div>
           <CollaborationPanel />
+          {onClose && (
+            <button 
+              onClick={onClose} 
+              className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1 border border-transparent hover:border-slate-700" 
+              title="Close UI Builder"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </header>
 
@@ -186,6 +196,8 @@ export const BuilderRoot: React.FC = () => {
           <MenuBtn icon={<Trash2 size={13} />} label="Delete" sub="Del" onClick={() => { useUIBuilderStore.getState().deleteNode(ctxMenu.nodeId); setCtxMenu(null); }} danger />
         </div>
       )}
+
+      <AICopilotPanel />
     </div>
   );
 };

@@ -139,7 +139,7 @@ export function App() {
 
       {/* UI Builder Overlay */}
       {uiBuilderOpen && (
-        <BuilderRoot />
+        <BuilderRoot onClose={() => setUiBuilderOpen(false)} />
       )}
     </div>
   )

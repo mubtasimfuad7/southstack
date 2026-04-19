@@ -33,6 +33,9 @@ interface UIBuilderState {
   ungroupNode: (id: string) => void;
   reorderNode: (id: string, dir: 'up' | 'down') => void;
   moveNodeToGroup: (nodeId: string, targetId: string | null) => void;
+  setNodeLock: (nodeId: string, peerId: string | null) => void;
+  setEditAccess: (access: boolean) => void;
+  addEditRequest: (peerId: string) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -221,6 +224,17 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   setActiveNavigation: (activeLayoutId, activePageId) => set({ activeLayoutId, activePageId, selectedNodeIds: [] }),
   setActiveTool: (activeTool) => set({ activeTool }),
   setHoveredNode: (hoveredNodeId) => set({ hoveredNodeId }),
+  
+  setNodeLock: (nodeId, peerId) => set((state) => {
+    const locks = { ...state.nodeLocks };
+    if (peerId) locks[nodeId] = peerId;
+    else delete locks[nodeId];
+    return { nodeLocks: locks };
+  }),
+  setEditAccess: (hasEditAccess) => set({ hasEditAccess }),
+  addEditRequest: (peerId) => set((state) => ({ 
+    pendingEditRequests: state.pendingEditRequests.includes(peerId) ? state.pendingEditRequests : [...state.pendingEditRequests, peerId] 
+  })),
 
   addNode: (node, parentId) => set((state) => {
     const doc = { ...state.document };
