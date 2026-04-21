@@ -25,6 +25,7 @@ interface UIBuilderState {
   setActiveTool: (tool: string) => void;
   addNode: (node: any, parentId?: string | null) => void;
   updateNode: (id: string, patch: any) => void;
+  addDecorator: (nodeId: string, decorator: any) => void;
   updateDecorator: (nodeId: string, decoratorId: string, patch: any) => void;
   deleteNode: (id: string) => void;
   findNode: (id: string) => any | null;
@@ -272,6 +273,20 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
       }
 
       const parent = state.getParentNode(id);
+      NodeFactory.computeStyles(node, parent || undefined);
+    }
+    return { document: doc };
+  }),
+
+  addDecorator: (nodeId, decorator) => set((state) => {
+    const doc = { ...state.document };
+    const node = state.findNode(nodeId);
+    if (node) {
+      if (!Array.isArray(node.decorators)) {
+        node.decorators = [];
+      }
+      node.decorators.push(decorator);
+      const parent = state.getParentNode(nodeId);
       NodeFactory.computeStyles(node, parent || undefined);
     }
     return { document: doc };

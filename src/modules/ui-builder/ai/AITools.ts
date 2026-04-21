@@ -14,13 +14,15 @@ export interface AITool {
 export const uiBuilderTools: AITool[] = [
   {
     name: 'create_element',
-    description: 'Creates a new element and adds it to the canvas. Always provide reasonable initial x, y, width, and height.',
+    description: 'Creates a new element and adds it to the canvas. Always provide reasonable initial x, y, width, and height. For nested creation in one batch, assign a tempId to newly created parents and use parentRef from later actions.',
     parameters: {
       type: 'object',
       properties: {
         type: { type: 'string', enum: Object.values(NodeType), description: 'The type of node, like FRAME, TEXT, RECTANGLE, IMAGE' },
         name: { type: 'string', description: 'A semantic name for the element, e.g. "Submit Button"' },
+        tempId: { type: 'string', description: 'Optional temporary reference label for this new node so later actions in the same batch can refer to it.' },
         parentId: { type: 'string', description: 'Optional: ID of the parent element to add this to.' },
+        parentRef: { type: 'string', description: 'Optional temporary reference label that points to a node created earlier in the same batch.' },
         content: { type: 'string', description: 'Optional: text content if type is TEXT' },
         x: { type: 'number' },
         y: { type: 'number' },
@@ -90,15 +92,27 @@ export const uiBuilderTools: AITool[] = [
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'The exact ID of the node to update.' },
-        decoratorType: { type: 'string', enum: ['background', 'text-color', 'style', 'text-align', 'source'], description: 'The type of styling to update' },
+        nodeRef: { type: 'string', description: 'Optional temporary reference label that points to a node created earlier in the same batch.' },
+        decoratorType: { type: 'string', enum: ['background', 'text-color', 'style', 'text-align', 'source', 'text'], description: 'The type of styling or text update to apply' },
         configValues: { type: 'object', description: 'A JSON object containing the values to update.' }
       },
-      required: ['nodeId', 'decoratorType', 'configValues']
+      required: ['decoratorType', 'configValues']
     },
     execute: ({ nodeId, decoratorType, configValues }) => {
       const state = useUIBuilderStore.getState();
       const node = state.findNode(nodeId);
       if (!node) throw new Error(`Node ${nodeId} not found.`);
+
+      // Text content is stored directly on the node, not as a decorator.
+      if (
+        node.type === NodeType.TEXT &&
+        (decoratorType === 'text' || typeof configValues?.content === 'string')
+      ) {
+        EditorAPI.updateNode(nodeId, {
+          content: configValues.content ?? node.content
+        });
+        return { success: true, message: `Updated text content on node ${nodeId}` };
+      }
 
       const decorator = node.decorators.find((d: any) => d.type === decoratorType);
       
@@ -124,12 +138,13 @@ export const uiBuilderTools: AITool[] = [
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'The ID of the node to update' },
+        nodeRef: { type: 'string', description: 'Optional temporary reference label that points to a node created earlier in the same batch.' },
         x: { type: 'number' },
         y: { type: 'number' },
         width: { type: 'number' },
         height: { type: 'number' }
       },
-      required: ['nodeId']
+      required: []
     },
     execute: (args) => {
       const state = useUIBuilderStore.getState();
@@ -152,9 +167,10 @@ export const uiBuilderTools: AITool[] = [
     parameters: {
       type: 'object',
       properties: {
-        nodeId: { type: 'string', description: 'The ID of the node to delete' }
+        nodeId: { type: 'string', description: 'The ID of the node to delete' },
+        nodeRef: { type: 'string', description: 'Optional temporary reference label that points to a node created earlier in the same batch.' },
       },
-      required: ['nodeId']
+      required: []
     },
     execute: ({ nodeId }) => {
       const state = useUIBuilderStore.getState();
