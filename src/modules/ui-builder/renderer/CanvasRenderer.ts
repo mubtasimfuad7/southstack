@@ -11,7 +11,7 @@ export class CanvasRenderer implements Renderer {
   private scrollY: number = 0;
   private mediaCache: Map<string, HTMLImageElement | HTMLVideoElement> = new Map();
 
-  render(document: DesignDocument, canvas: HTMLCanvasElement, selectedIds: string[], viewport: any, activeLayoutId: string, activePageId: string, nodeLocks: Record<string, string> = {}, localPeerId: string = '', hoveredNodeId: string | null = null): void {
+  render(document: DesignDocument, canvas: HTMLCanvasElement, selectedIds: string[], viewport: any, activeLayoutId: string, activePageId: string, nodeLocks: Record<string, string> = {}, localPeerId: string = '', hoveredNodeId: string | null = null, onMediaLoad?: () => void): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     this.ctx = ctx;
@@ -31,7 +31,7 @@ export class CanvasRenderer implements Renderer {
     if (page) {
       page.nodes.forEach(node => {
         NodeFactory.computeStyles(node);
-        this.renderNode(node, selectedIds, nodeLocks, localPeerId, hoveredNodeId);
+        this.renderNode(node, selectedIds, nodeLocks, localPeerId, hoveredNodeId, onMediaLoad);
       });
 
       const labelSize = Math.max(9, 12 / this.zoom);
@@ -47,7 +47,7 @@ export class CanvasRenderer implements Renderer {
     ctx.restore();
   }
 
-  private renderNode(node: DesignNode, selectedIds: string[], nodeLocks: Record<string, string>, localPeerId: string, hoveredNodeId: string | null): void {
+  private renderNode(node: DesignNode, selectedIds: string[], nodeLocks: Record<string, string>, localPeerId: string, hoveredNodeId: string | null, onMediaLoad?: () => void): void {
     if (!this.ctx) return;
     const ctx = this.ctx;
     ctx.save();
@@ -86,7 +86,7 @@ export class CanvasRenderer implements Renderer {
           if (node.type === NodeType.IMAGE) {
             media = new Image();
             media.src = url;
-            media.onload = () => {}; // Trigger re-render later if needed
+            media.onload = () => onMediaLoad?.();
           } else {
             media = document.createElement('video');
             media.src = url;
@@ -126,7 +126,7 @@ export class CanvasRenderer implements Renderer {
 
     // ── Children ──
     if (node.children) {
-      node.children.forEach(child => this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId));
+      node.children.forEach(child => this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId, onMediaLoad));
     }
 
     // ── Selection/Hover/Locks Overlays ──

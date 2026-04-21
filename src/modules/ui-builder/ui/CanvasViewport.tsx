@@ -49,7 +49,8 @@ export const CanvasViewport: React.FC = () => {
     rendererRef.current.render(
       document, canvasRef.current, selectedNodeIds, viewport,
       activeLayoutId, activePageId, nodeLocks,
-      peerNetworkManager.getLocalPeerId(), hoveredNodeId
+      peerNetworkManager.getLocalPeerId(), hoveredNodeId,
+      () => requestAnimationFrame(render)
     );
 
     // Draw rubberband preview when using a drawing tool or marquee
