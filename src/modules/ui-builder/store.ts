@@ -14,6 +14,7 @@ interface UIBuilderState {
   hostPeerId: string | null;
   hasEditAccess: boolean;
   pendingEditRequests: string[];
+  allowedPeers: string[];
   peerStates: Record<string, any>;
   nodeLocks: Record<string, string>;
 
@@ -37,6 +38,8 @@ interface UIBuilderState {
   setNodeLock: (nodeId: string, peerId: string | null) => void;
   setEditAccess: (access: boolean) => void;
   addEditRequest: (peerId: string) => void;
+  resolveEditRequest: (peerId: string, approved: boolean) => void;
+  joinSession: (hostPeerId: string | null, asHost?: boolean) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -212,6 +215,7 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   hostPeerId: null,
   hasEditAccess: true,
   pendingEditRequests: [],
+  allowedPeers: [],
   peerStates: {},
   nodeLocks: {},
 
@@ -235,6 +239,19 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   setEditAccess: (hasEditAccess) => set({ hasEditAccess }),
   addEditRequest: (peerId) => set((state) => ({ 
     pendingEditRequests: state.pendingEditRequests.includes(peerId) ? state.pendingEditRequests : [...state.pendingEditRequests, peerId] 
+  })),
+  resolveEditRequest: (peerId, approved) => set((state) => ({
+    pendingEditRequests: state.pendingEditRequests.filter(id => id !== peerId),
+    allowedPeers: approved && !state.allowedPeers.includes(peerId)
+      ? [...state.allowedPeers, peerId]
+      : state.allowedPeers
+  })),
+  joinSession: (hostPeerId, asHost = false) => set((state) => ({
+    hostPeerId: asHost ? null : hostPeerId,
+    hasEditAccess: asHost || hostPeerId === null,
+    selectedNodeIds: [],
+    nodeLocks: {},
+    pendingEditRequests: asHost ? state.pendingEditRequests : [],
   })),
 
   addNode: (node, parentId) => set((state) => {
