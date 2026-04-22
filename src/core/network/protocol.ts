@@ -36,6 +36,7 @@ export type MessageType =
   | 'tool/request'
   | 'tool/response'
   | 'tool/error'
+  | 'net/chunk'
   | 'sync/peer_snapshot'
   | 'ui/peer-state'
   | 'ui/cursor'
@@ -197,6 +198,13 @@ export interface PeerSnapshotPayload {
     lastHeartbeat: number
     reliabilityScore: number
   }>
+}
+
+export interface NetChunkPayload {
+  originalMessageId: string
+  index: number
+  total: number
+  data: string
 }
 
 // ── UI Builder types ───────────────────────────────────────

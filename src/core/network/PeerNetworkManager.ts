@@ -13,12 +13,15 @@ import {
   type HelloPayload,
   type HeartbeatPayload,
   type GoodbyePayload,
+  type NetChunkPayload,
   type PeerCapabilities,
   type PeerLocalState,
 } from './protocol'
 
 const HEARTBEAT_INTERVAL_MS = 1_000  // More frequent heartbeats
 const PEER_TIMEOUT_MS = 10_000      // More forgiving timeout (10s instead of 6s)
+const DATA_CHANNEL_CHUNK_SIZE = 16_000
+const DATA_CHANNEL_CHUNK_TTL_MS = 30_000
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ]
@@ -31,6 +34,12 @@ type PeerEntry = {
 }
 
 type PeerOfflineCallback = (peerId: string) => void
+type ChunkBuffer = {
+  receivedAt: number
+  total: number
+  chunks: string[]
+  receivedCount: number
+}
 
 class PeerNetworkManager {
   private localPeerId: string = ''
@@ -38,6 +47,7 @@ class PeerNetworkManager {
   private peers = new Map<string, PeerEntry>()
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private offlineCheckTimer: ReturnType<typeof setInterval> | null = null
+  private inboundChunks = new Map<string, ChunkBuffer>()
   private offlineCallbacks = new Set<PeerOfflineCallback>()
   private getLocalState: (() => PeerLocalState) = () => 'idle'
   private getAcceptsRemote: (() => boolean) = () => true
@@ -236,7 +246,8 @@ class PeerNetworkManager {
 
     channel.onmessage = (e) => {
       try {
-        const raw = JSON.parse(e.data as string)
+        const raw = this._parseInboundData(e.data as string, remotePeerId)
+        if (!raw) return
         if (isValidMessage(raw)) {
           // Update last seen on every inbound message
           const entry = this.peers.get(remotePeerId)
@@ -249,6 +260,56 @@ class PeerNetworkManager {
     }
 
     channel.onclose = () => this._handlePeerDisconnect(remotePeerId)
+  }
+
+  private _parseInboundData(data: string, remotePeerId: string): unknown | null {
+    const raw = JSON.parse(data)
+    if (raw?.type !== 'net/chunk') return raw
+    if (!isValidMessage(raw)) return null
+
+    const payload = raw.payload as NetChunkPayload
+    if (
+      typeof payload?.originalMessageId !== 'string' ||
+      typeof payload.index !== 'number' ||
+      typeof payload.total !== 'number' ||
+      typeof payload.data !== 'string' ||
+      payload.index < 0 ||
+      payload.index >= payload.total
+    ) {
+      return null
+    }
+
+    const key = `${remotePeerId}:${payload.originalMessageId}`
+    const now = Date.now()
+    let buffer = this.inboundChunks.get(key)
+    if (!buffer) {
+      buffer = {
+        receivedAt: now,
+        total: payload.total,
+        chunks: new Array(payload.total),
+        receivedCount: 0,
+      }
+      this.inboundChunks.set(key, buffer)
+      this._cleanupInboundChunks(now)
+    }
+
+    if (!buffer.chunks[payload.index]) {
+      buffer.chunks[payload.index] = payload.data
+      buffer.receivedCount += 1
+    }
+
+    if (buffer.receivedCount !== buffer.total) return null
+
+    this.inboundChunks.delete(key)
+    return JSON.parse(buffer.chunks.join(''))
+  }
+
+  private _cleanupInboundChunks(now: number): void {
+    for (const [key, buffer] of this.inboundChunks) {
+      if (now - buffer.receivedAt > DATA_CHANNEL_CHUNK_TTL_MS) {
+        this.inboundChunks.delete(key)
+      }
+    }
   }
 
   private _sendSignal(payload: Record<string, unknown>): void {
@@ -302,7 +363,7 @@ class PeerNetworkManager {
     const data = JSON.stringify(msg)
     for (const entry of this.peers.values()) {
       if (entry.channel?.readyState === 'open') {
-        try { entry.channel.send(data) } catch { /* peer may be closing */ }
+        try { this._sendSerialized(entry.channel, data, msg.id) } catch { /* peer may be closing */ }
       }
     }
   }
@@ -311,10 +372,28 @@ class PeerNetworkManager {
     const entry = this.peers.get(peerId)
     if (!entry || entry.channel?.readyState !== 'open') return false
     try {
-      entry.channel.send(JSON.stringify(msg))
+      this._sendSerialized(entry.channel, JSON.stringify(msg), msg.id)
       return true
     } catch {
       return false
+    }
+  }
+
+  private _sendSerialized(channel: RTCDataChannel, data: string, originalMessageId: string): void {
+    if (data.length <= DATA_CHANNEL_CHUNK_SIZE) {
+      channel.send(data)
+      return
+    }
+
+    const total = Math.ceil(data.length / DATA_CHANNEL_CHUNK_SIZE)
+    for (let index = 0; index < total; index += 1) {
+      const chunk = createMessage<NetChunkPayload>('net/chunk', this.localPeerId, {
+        originalMessageId,
+        index,
+        total,
+        data: data.slice(index * DATA_CHANNEL_CHUNK_SIZE, (index + 1) * DATA_CHANNEL_CHUNK_SIZE),
+      })
+      channel.send(JSON.stringify(chunk))
     }
   }
 
