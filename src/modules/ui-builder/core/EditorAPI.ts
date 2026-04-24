@@ -1,4 +1,4 @@
-import { useUIBuilderStore } from '../store';
+import { useUIBuilderStore, type UIUploadedAsset } from '../store';
 import { DesignNode } from './DesignNode';
 import { messageBus } from '@/core/network/messageBus';
 import { createMessage, UIPeerStatePayload, UICursorPayload, UIDocChangePayload } from '@/core/network/protocol';
@@ -70,6 +70,22 @@ export const EditorAPI = {
     useUIBuilderStore.getState().updateDecorator(nodeId, decoratorId, config);
     if (useUIBuilderStore.getState().hasEditAccess) {
       this.broadcastDocumentChange({ type: 'update-decorator', nodeId, decoratorId, config });
+    }
+  },
+
+  replaceDocument(document: any, uploadedAssets: Record<string, UIUploadedAsset> = {}) {
+    const state = useUIBuilderStore.getState();
+    const localId = peerNetworkManager.getLocalPeerId();
+    state.loadDesignBundle(document, uploadedAssets);
+
+    // Full-document replacement is safest when performed by the local host.
+    if (!localId) return;
+    if (!state.hostPeerId || state.hostPeerId === localId) {
+      const msg = createMessage<UIDocSyncPayload>(UITypeKeys.DOC_SYNC, localId, {
+        document,
+        hostPeerId: localId
+      });
+      peerNetworkManager.broadcast(msg);
     }
   },
 

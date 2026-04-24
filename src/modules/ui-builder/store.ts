@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { DesignDocument } from './core/DesignDocument';
+import { FRAME_PRESETS, type FramePresetKey } from './core/FramePresets';
 import { NodeFactory } from './core/NodeFactory';
 import { NodeType } from './core/NodeTypes';
 
@@ -49,6 +50,8 @@ interface UIBuilderState {
   deleteNode: (id: string) => void;
   findNode: (id: string) => any | null;
   addPage: (name: string) => void;
+  renamePage: (pageId: string, name: string) => void;
+  addFrameToPage: (pageId: string, preset: 'desktop' | 'tablet' | 'mobile') => void;
   groupNodes: (ids: string[]) => void;
   ungroupNode: (id: string) => void;
   reorderNode: (id: string, dir: 'up' | 'down') => void;
@@ -63,6 +66,7 @@ interface UIBuilderState {
   resolveAssetRequest: (assetId: string, peerId: string) => void;
   markAssetRequested: (assetId: string) => void;
   markAssetDenied: (assetId: string) => void;
+  loadDesignBundle: (document: DesignDocument, uploadedAssets?: Record<string, UIUploadedAsset>) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -88,6 +92,12 @@ const setupNode = (node: any, props: { x?: number, y?: number, w?: number, h?: n
     if (tc) tc.config.color = props.color;
   }
   return node;
+};
+
+const PAGE_FRAME_PRESET_NAMES: Record<'desktop' | 'tablet' | 'mobile', string> = {
+  desktop: 'Desktop Frame',
+  tablet: 'Tablet Frame',
+  mobile: 'Mobile Frame'
 };
 
 // ─── Preset: Professional Food Delivery App ───────────────────────────────────
@@ -248,7 +258,17 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   setDocument: (document) => {
     // Recompute styles whenever a new document is set
     document.layouts.forEach(l => l.pages.forEach(p => p.nodes.forEach(n => NodeFactory.computeStyles(n))));
-    set({ document });
+    const firstLayout = document.layouts[0];
+    const firstPage = firstLayout?.pages[0];
+    const state = get();
+    const activeLayout = document.layouts.find(l => l.id === state.activeLayoutId) || firstLayout;
+    const activePage = activeLayout?.pages.find(p => p.id === state.activePageId) || activeLayout?.pages[0] || firstPage;
+    set({
+      document,
+      activeLayoutId: activeLayout?.id || state.activeLayoutId,
+      activePageId: activePage?.id || state.activePageId,
+      selectedNodeIds: []
+    });
   },
 
   setViewport: (patch) => set((state) => ({ viewport: { ...state.viewport, ...patch } })),
@@ -299,6 +319,19 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   markAssetDenied: (assetId) => set((state) => ({
     requestedAssetIds: { ...state.requestedAssetIds, [assetId]: 'denied' }
   })),
+  loadDesignBundle: (document, uploadedAssets = {}) => {
+    document.layouts.forEach(l => l.pages.forEach(p => p.nodes.forEach(n => NodeFactory.computeStyles(n))));
+    const firstLayout = document.layouts[0];
+    const firstPage = firstLayout?.pages[0];
+    set({
+      document,
+      uploadedAssets,
+      requestedAssetIds: {},
+      selectedNodeIds: [],
+      activeLayoutId: firstLayout?.id || 'l1',
+      activePageId: firstPage?.id || 'p1',
+    });
+  },
 
   addNode: (node, parentId) => set((state) => {
     const doc = { ...state.document };
@@ -501,6 +534,40 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
       return { document: doc, activePageId: newPage.id };
     }
     return state;
+  }),
+
+  renamePage: (pageId, name) => set((state) => {
+    const doc = { ...state.document };
+    const layout = doc.layouts.find(l => l.id === state.activeLayoutId);
+    const page = layout?.pages.find(p => p.id === pageId);
+    if (!page) return state;
+    page.name = name.trim() || page.name;
+    return { document: doc };
+  }),
+
+  addFrameToPage: (pageId, preset) => set((state) => {
+    const doc = { ...state.document };
+    const layout = doc.layouts.find(l => l.id === state.activeLayoutId);
+    const page = layout?.pages.find(p => p.id === pageId);
+    if (!page) return state;
+
+    const presetConfig = FRAME_PRESETS[preset as FramePresetKey];
+    const frameCount = page.nodes.filter(n => n.type === NodeType.FRAME).length;
+    const frame = setupNode(
+      NodeFactory.createFrame(NodeFactory.makeId(), PAGE_FRAME_PRESET_NAMES[preset]),
+      {
+        x: 80 + frameCount * (preset === 'desktop' ? 120 : preset === 'tablet' ? 180 : 430),
+        y: 80 + frameCount * 24,
+        w: presetConfig.width,
+        h: presetConfig.height,
+        bg: '#F8FAFC'
+      }
+    );
+    const layoutDec = frame.decorators.find(d => d.type === 'layout');
+    if (layoutDec) layoutDec.config.framePreset = preset;
+    page.nodes.push(frame);
+    NodeFactory.computeStyles(frame);
+    return { document: doc, activePageId: pageId, selectedNodeIds: [frame.id] };
   }),
 
   getAbsoluteTransform: (id) => {

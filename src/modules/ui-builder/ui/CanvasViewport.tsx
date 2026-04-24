@@ -214,11 +214,24 @@ export const CanvasViewport: React.FC = () => {
     else if (tool === 'video') node = NodeFactory.createVideo(id, 'Video', 'https://video.twimg.com/ext_tw_video/1450250644917522434/pu/vid/1280x720/6p9_x_f5G_w_fB_q.mp4');
     else node = NodeFactory.createVector(id, 'Vector');
 
-    node.x = x; node.y = y; node.width = w; node.height = h;
-    const ld = node.decorators.find(d => d.type === 'layout');
-    if (ld) ld.config = { x, y, width: w, height: h };
+    let parentId: string | undefined;
+    let nextX = x;
+    let nextY = y;
+    if (selectedNodeIds.length === 1) {
+      const selectedNode = findNode(selectedNodeIds[0]);
+      if (selectedNode && (selectedNode.type === NodeType.FRAME || selectedNode.type === NodeType.GROUP)) {
+        const localStart = worldToLocal(x, y, selectedNode);
+        parentId = selectedNode.id;
+        nextX = localStart.x;
+        nextY = localStart.y;
+      }
+    }
 
-    EditorAPI.addNode(node);
+    node.x = nextX; node.y = nextY; node.width = w; node.height = h;
+    const ld = node.decorators.find(d => d.type === 'layout');
+    if (ld) ld.config = { ...ld.config, x: nextX, y: nextY, width: w, height: h };
+
+    EditorAPI.addNode(node, parentId);
     EditorAPI.select([id]);
     setActiveTool('select');
   };

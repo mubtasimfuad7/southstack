@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CanvasViewport } from './CanvasViewport';
 import { useUIBuilderStore } from '../store';
 import { EditorAPI } from '../core/EditorAPI';
@@ -12,8 +12,9 @@ import {
   Plus, Minus, ChevronRight, ChevronDown, Layers2,
   LayoutGrid, Image, Code2, Component, PenTool,
   FilePlus, Trash2, ArrowUp, ArrowDown, Unlink, Video,
-  Play
+  Play, Monitor, Smartphone, Pencil, Tablet, Download, Upload
 } from 'lucide-react';
+import { peerNetworkManager } from '@/core/network/PeerNetworkManager';
 
 // ─── Node type icons ──────────────────────────────────────────────────────────
 const NODE_ICONS: Record<string, React.ReactNode> = {
@@ -29,13 +30,19 @@ const NODE_ICONS: Record<string, React.ReactNode> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CtxMenu { nodeId: string; nodeType: string; x: number; y: number; }
 interface DragInfo { nodeId: string; overNodeId: string | null; pos: 'above' | 'below' | 'into' | null; }
+interface DesignBundleFile {
+  version: number;
+  exportedAt: string;
+  document: any;
+  uploadedAssets?: Record<string, any>;
+}
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const {
     document, selectedNodeIds,
-    activeLayoutId, activePageId, setActiveNavigation,
-    findNode, addPage, activeTool, setActiveTool, groupNodes, ungroupNode, reorderNode
+    activeLayoutId, activePageId, hostPeerId, setActiveNavigation,
+    findNode, addPage, renamePage, addFrameToPage, activeTool, setActiveTool, groupNodes, ungroupNode, reorderNode
   } = useUIBuilderStore();
 
   useEffect(() => { EditorAPI.init(); }, []);
@@ -65,11 +72,58 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
   const currentLayout = document.layouts.find(l => l.id === activeLayoutId) || document.layouts[0];
   const currentPage = currentLayout.pages.find(p => p.id === activePageId) || currentLayout.pages[0];
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const localPeerId = peerNetworkManager.getLocalPeerId();
+  const isRemoteSession = !!(hostPeerId && hostPeerId !== localPeerId);
 
   const handleLayerSelect = (id: string, multi: boolean) => { EditorAPI.select([id], multi); };
   const handleContextMenu = (e: React.MouseEvent, node: any) => {
     e.preventDefault();
     setCtxMenu({ nodeId: node.id, nodeType: node.type, x: e.clientX, y: e.clientY });
+  };
+  const handleExportJson = () => {
+    const state = useUIBuilderStore.getState();
+    const downloadableAssets = Object.fromEntries(
+      Object.entries(state.uploadedAssets).map(([assetId, asset]) => [
+        assetId,
+        { ...asset, ownerPeerId: localPeerId || asset.ownerPeerId }
+      ])
+    );
+    const bundle: DesignBundleFile = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      document: state.document,
+      uploadedAssets: downloadableAssets
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = globalThis.document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(state.document.name || 'ui-design').replace(/\s+/g, '-').toLowerCase()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+  const handleImportJson = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as DesignBundleFile | any;
+      const nextDocument = parsed.document ?? parsed;
+      if (!nextDocument?.layouts || !Array.isArray(nextDocument.layouts)) {
+        throw new Error('Invalid design JSON');
+      }
+
+      const nextAssets = Object.fromEntries(
+        Object.entries(parsed.uploadedAssets || {}).map(([assetId, asset]: [string, any]) => [
+          assetId,
+          { ...asset, ownerPeerId: localPeerId || asset.ownerPeerId }
+        ])
+      );
+      EditorAPI.replaceDocument(nextDocument, nextAssets);
+    } catch (error) {
+      console.error('Failed to import design JSON:', error);
+      window.alert('Could not import this design JSON file.');
+    }
   };
 
   return (
@@ -88,6 +142,31 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
         </div>
         <div className="flex items-center gap-2">
           <div className="text-[10px] font-bold text-violet-400 bg-violet-400/10 px-2 py-0.5 rounded border border-violet-400/20 mr-2">Design Mode</div>
+          <button
+            onClick={handleExportJson}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/8 hover:text-slate-200 transition-colors"
+            title="Export design JSON"
+          >
+            <Download size={14} />
+          </button>
+          <button
+            onClick={() => importInputRef.current?.click()}
+            disabled={isRemoteSession}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-white/8 hover:text-slate-200 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            title={isRemoteSession ? 'Import is only available to the local host' : 'Import design JSON'}
+          >
+            <Upload size={14} />
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              handleImportJson(e.target.files?.[0] || null);
+              e.currentTarget.value = '';
+            }}
+          />
           <CollaborationPanel />
           {onClose && (
             <button 
@@ -108,19 +187,45 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
           <div className="h-1/3 flex flex-col border-b border-white/[0.07] overflow-hidden">
             <div className="p-2 flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Pages</span>
-              <button onClick={() => addPage('New Page')} className="p-1 hover:bg-white/5 rounded text-slate-400 hover:text-white transition-colors">
-                <FilePlus size={14} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => addFrameToPage(activePageId, 'desktop')}
+                  className="p-1 hover:bg-white/5 rounded text-slate-400 hover:text-white transition-colors"
+                  title="Add desktop frame"
+                >
+                  <Monitor size={14} />
+                </button>
+                <button
+                  onClick={() => addFrameToPage(activePageId, 'mobile')}
+                  className="p-1 hover:bg-white/5 rounded text-slate-400 hover:text-white transition-colors"
+                  title="Add mobile frame"
+                >
+                  <Smartphone size={14} />
+                </button>
+                <button
+                  onClick={() => addFrameToPage(activePageId, 'tablet')}
+                  className="p-1 hover:bg-white/5 rounded text-slate-400 hover:text-white transition-colors"
+                  title="Add tablet frame"
+                >
+                  <Tablet size={14} />
+                </button>
+                <button onClick={() => addPage('New Page')} className="p-1 hover:bg-white/5 rounded text-slate-400 hover:text-white transition-colors" title="Add page">
+                  <FilePlus size={14} />
+                </button>
+              </div>
             </div>
             <div className="grow overflow-y-auto px-1 py-1 space-y-0.5 custom-scrollbar">
               {currentLayout.pages.map(page => (
-                <div
+                <PageRow
                   key={page.id}
-                  onClick={() => setActiveNavigation(activeLayoutId, page.id)}
-                  className={`group flex items-center px-2 py-1.5 rounded cursor-pointer transition-colors ${activePageId === page.id ? 'bg-violet-600/15 text-violet-400 shadow-sm' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
-                >
-                  <span className="text-xs font-medium grow truncate">{page.name}</span>
-                </div>
+                  page={page}
+                  isActive={activePageId === page.id}
+                  onSelect={() => setActiveNavigation(activeLayoutId, page.id)}
+                  onRename={(name) => renamePage(page.id, name)}
+                  onAddDesktopFrame={() => addFrameToPage(page.id, 'desktop')}
+                  onAddTabletFrame={() => addFrameToPage(page.id, 'tablet')}
+                  onAddMobileFrame={() => addFrameToPage(page.id, 'mobile')}
+                />
               ))}
             </div>
           </div>
@@ -227,6 +332,87 @@ const MenuBtn: React.FC<{ icon: React.ReactNode, label: string, sub?: string, on
 );
 
 const Sep = () => <div className="w-px h-4 bg-white/10 mx-1" />;
+
+const PageRow: React.FC<{
+  page: { id: string; name: string; nodes: any[] };
+  isActive: boolean;
+  onSelect: () => void;
+  onRename: (name: string) => void;
+  onAddDesktopFrame: () => void;
+  onAddTabletFrame: () => void;
+  onAddMobileFrame: () => void;
+}> = ({ page, isActive, onSelect, onRename, onAddDesktopFrame, onAddTabletFrame, onAddMobileFrame }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftName, setDraftName] = useState(page.name);
+
+  useEffect(() => {
+    setDraftName(page.name);
+  }, [page.name]);
+
+  const submitRename = () => {
+    onRename(draftName);
+    setIsEditing(false);
+  };
+
+  return (
+    <div
+      onClick={() => !isEditing && onSelect()}
+      className={`group flex items-center gap-1 px-2 py-1.5 rounded cursor-pointer transition-colors ${isActive ? 'bg-violet-600/15 text-violet-400 shadow-sm' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}
+    >
+      {isEditing ? (
+        <input
+          autoFocus
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          onBlur={submitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitRename();
+            if (e.key === 'Escape') {
+              setDraftName(page.name);
+              setIsEditing(false);
+            }
+          }}
+          className="min-w-0 grow bg-black/20 border border-violet-500/40 rounded px-2 py-1 text-xs text-slate-100 outline-none"
+        />
+      ) : (
+        <span className="text-xs font-medium grow truncate">{page.name}</span>
+      )}
+
+      {!isEditing && (
+        <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddDesktopFrame(); }}
+            className="p-1 rounded text-slate-500 hover:text-white hover:bg-white/5"
+            title="Add desktop frame"
+          >
+            <Monitor size={12} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddTabletFrame(); }}
+            className="p-1 rounded text-slate-500 hover:text-white hover:bg-white/5"
+            title="Add tablet frame"
+          >
+            <Tablet size={12} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onAddMobileFrame(); }}
+            className="p-1 rounded text-slate-500 hover:text-white hover:bg-white/5"
+            title="Add mobile frame"
+          >
+            <Smartphone size={12} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+            className="p-1 rounded text-slate-500 hover:text-white hover:bg-white/5"
+            title="Rename page"
+          >
+            <Pencil size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const LayersPanel: React.FC<{
   nodes: any[]; selectedIds: string[]; onSelect: (id: string, multi: boolean) => void; onContextMenu: (e: React.MouseEvent, node: any) => void

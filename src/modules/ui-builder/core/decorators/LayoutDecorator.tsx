@@ -1,6 +1,30 @@
 import React from 'react';
 import { BaseDecorator, CSSAttributes, DesignNode } from '../DesignNode';
+import { FRAME_PRESETS, type FramePresetKey } from '../FramePresets';
 import { Maximize, Move, Percent } from 'lucide-react';
+import { NodeType } from '../NodeTypes';
+
+const LayoutPropInput: React.FC<{
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  icon?: React.ComponentType<{ size?: number }>;
+  step?: number;
+}> = ({ label, value, onChange, icon: Icon, step = 1 }) => (
+  <div className="flex flex-col gap-1 flex-1">
+    <span className="text-[8px] text-text-dim uppercase font-bold flex items-center gap-1">
+      {Icon && <Icon size={8} />}
+      {label}
+    </span>
+    <input
+      type="number"
+      step={step}
+      value={value}
+      onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+      className="bg-surface-300 border border-border/50 rounded px-1.5 py-1 text-[10px] w-full outline-none focus:border-violet-500"
+    />
+  </div>
+);
 
 /**
  * Decorator for Node Layout (x, y, width, height)
@@ -24,26 +48,43 @@ export class LayoutDecorator extends BaseDecorator {
   }
 
   renderUI(node: DesignNode, config: any, update: (newConfig: any) => void): React.ReactNode {
-    const PropInput = ({ label, value, onChange, icon: Icon, step = 1 }: any) => (
-      <div className="flex flex-col gap-1 flex-1">
-        <span className="text-[8px] text-text-dim uppercase font-bold flex items-center gap-1">
-          {Icon && <Icon size={8} />}
-          {label}
-        </span>
-        <input
-          type="number" step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="bg-surface-300 border border-border/50 rounded px-1.5 py-1 text-[10px] w-full outline-none focus:border-violet-500"
-        />
-      </div>
-    );
+    const handleFramePresetChange = (preset: FramePresetKey) => {
+      if (preset === 'custom') {
+        update({ framePreset: 'custom' });
+        return;
+      }
+      const next = FRAME_PRESETS[preset];
+      update({
+        framePreset: preset,
+        isPercentWidth: false,
+        width: next.width,
+        height: next.height
+      });
+    };
 
     return (
       <div className="space-y-4">
+        {node.type === NodeType.FRAME && (
+          <div className="space-y-1">
+            <span className="text-[9px] uppercase font-bold text-text-dim">Frame Type</span>
+            <select
+              value={(config.framePreset as FramePresetKey) || 'custom'}
+              onChange={(e) => handleFramePresetChange(e.target.value as FramePresetKey)}
+              className="w-full bg-surface-300 border border-border/50 rounded px-2 py-1.5 text-[10px] outline-none focus:border-violet-500"
+            >
+              {Object.entries(FRAME_PRESETS).map(([key, preset]) => (
+                <option key={key} value={key}>
+                  {preset.label}
+                  {key !== 'custom' ? ` (${preset.width} x ${preset.height})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex gap-2">
-          <PropInput label="X" value={config.x || 0} icon={Move} onChange={(v: number) => update({ x: v })} />
-          <PropInput label="Y" value={config.y || 0} icon={Move} onChange={(v: number) => update({ y: v })} />
+          <LayoutPropInput label="X" value={config.x || 0} icon={Move} onChange={(v: number) => update({ x: v })} />
+          <LayoutPropInput label="Y" value={config.y || 0} icon={Move} onChange={(v: number) => update({ y: v })} />
         </div>
 
         <div className="space-y-2">
@@ -63,11 +104,11 @@ export class LayoutDecorator extends BaseDecorator {
 
           <div className="flex gap-2">
             {config.isPercentWidth ? (
-              <PropInput label="Width %" value={config.widthPercent || 100} icon={Percent} onChange={(v: number) => update({ widthPercent: v })} />
+              <LayoutPropInput label="Width %" value={config.widthPercent || 100} icon={Percent} onChange={(v: number) => update({ widthPercent: v })} />
             ) : (
-              <PropInput label="Width" value={config.width || 100} icon={Maximize} onChange={(v: number) => update({ width: v })} />
+              <LayoutPropInput label="Width" value={config.width || 100} icon={Maximize} onChange={(v: number) => update({ width: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
             )}
-            <PropInput label="Height" value={config.height || 100} icon={Maximize} onChange={(v: number) => update({ height: v })} />
+            <LayoutPropInput label="Height" value={config.height || 100} icon={Maximize} onChange={(v: number) => update({ height: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
           </div>
         </div>
       </div>
