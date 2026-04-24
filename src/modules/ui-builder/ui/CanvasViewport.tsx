@@ -14,13 +14,34 @@ interface DrawState { startX: number; startY: number; endX: number; endY: number
 
 const DRAWING_TOOLS = new Set(['frame', 'rect', 'text', 'vector', 'image', 'video']);
 
+type AssetRef = { assetId: string; ownerPeerId: string; fileName: string };
+
+const findMissingAssetRefs = (document: any): AssetRef[] => {
+  const refs = new Map<string, AssetRef>();
+  const visit = (node: DesignNode) => {
+    const source = node.decorators.find(d => d.type === 'source')?.config;
+    if (source?.assetId && source?.ownerPeerId) {
+      refs.set(source.assetId, {
+        assetId: source.assetId,
+        ownerPeerId: source.ownerPeerId,
+        fileName: source.fileName || 'Private photo'
+      });
+    }
+    node.children?.forEach(visit);
+  };
+  document.layouts?.forEach((layout: any) => {
+    layout.pages?.forEach((page: any) => page.nodes?.forEach(visit));
+  });
+  return [...refs.values()];
+};
+
 export const CanvasViewport: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CanvasRenderer>(new CanvasRenderer());
 
   const {
     document, selectedNodeIds, hoveredNodeId, peerStates, viewport, nodeLocks,
-    hasEditAccess, activeLayoutId, activePageId,
+    hasEditAccess, activeLayoutId, activePageId, uploadedAssets, requestedAssetIds,
     setViewport, findNode, getParentNode, activeTool, setActiveTool
   } = useUIBuilderStore();
 
@@ -50,6 +71,7 @@ export const CanvasViewport: React.FC = () => {
       document, canvasRef.current, selectedNodeIds, viewport,
       activeLayoutId, activePageId, nodeLocks,
       peerNetworkManager.getLocalPeerId(), hoveredNodeId,
+      (assetId) => uploadedAssets[assetId]?.dataUrl || null,
       () => requestAnimationFrame(render)
     );
 
@@ -106,7 +128,18 @@ export const CanvasViewport: React.FC = () => {
     return () => canvas.removeEventListener('wheel', handleWheel);
   }, [viewport, setViewport]);
 
-  useEffect(() => { render(); }, [document, selectedNodeIds, hoveredNodeId, peerStates, viewport, nodeLocks, activeLayoutId, activePageId, drawState, isMarquee]);
+  useEffect(() => { render(); }, [document, selectedNodeIds, hoveredNodeId, peerStates, viewport, nodeLocks, activeLayoutId, activePageId, drawState, isMarquee, uploadedAssets]);
+
+  useEffect(() => {
+    const localPeerId = peerNetworkManager.getLocalPeerId();
+    findMissingAssetRefs(document).forEach(ref => {
+      if (uploadedAssets[ref.assetId]) return;
+      if (requestedAssetIds[ref.assetId] === 'requested') return;
+      if (requestedAssetIds[ref.assetId] === 'denied') return;
+      if (!ref.ownerPeerId || ref.ownerPeerId === localPeerId) return;
+      EditorAPI.requestAssetAccess(ref.assetId, ref.ownerPeerId, ref.fileName);
+    });
+  }, [document, uploadedAssets, requestedAssetIds]);
 
   // ── coordinate helpers ──────────────────────────────────────────────────────
   const screenToWorld = (screenX: number, screenY: number) => {

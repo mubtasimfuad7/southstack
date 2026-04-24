@@ -3,7 +3,7 @@ import { DesignNode } from './DesignNode';
 import { messageBus } from '@/core/network/messageBus';
 import { createMessage, UIPeerStatePayload, UICursorPayload, UIDocChangePayload } from '@/core/network/protocol';
 import { peerNetworkManager } from '@/core/network/PeerNetworkManager';
-import { UITypeKeys, UIDocSyncPayload, UIDocSyncRequestPayload, UIEditAccessRequestPayload, UIEditAccessResponsePayload, UINodeLockRequestPayload, UINodeLockResponsePayload, UINodeUnlockPayload } from './UINetworkProtocol';
+import { UITypeKeys, UIDocSyncPayload, UIDocSyncRequestPayload, UIAssetAccessRequestPayload, UIAssetAccessResponsePayload, UIEditAccessRequestPayload, UIEditAccessResponsePayload, UINodeLockRequestPayload, UINodeLockResponsePayload, UINodeUnlockPayload } from './UINetworkProtocol';
 
 /**
  * EditorAPI is the unified control layer for all UI Builder operations.
@@ -95,6 +95,37 @@ export const EditorAPI = {
       requestingPeerId: localId
     }, state.hostPeerId);
     peerNetworkManager.sendToPeer(state.hostPeerId, msg);
+  },
+
+  requestAssetAccess(assetId: string, ownerPeerId: string, fileName: string) {
+    const state = useUIBuilderStore.getState();
+    if (state.uploadedAssets[assetId] || state.requestedAssetIds[assetId] === 'requested') return;
+
+    const localId = peerNetworkManager.getLocalPeerId();
+    state.markAssetRequested(assetId);
+    const msg = createMessage<UIAssetAccessRequestPayload>(UITypeKeys.ASSET_ACCESS_REQUEST, localId, {
+      assetId,
+      fileName,
+      requestingPeerId: localId
+    }, ownerPeerId);
+    peerNetworkManager.sendToPeer(ownerPeerId, msg);
+  },
+
+  respondToAssetRequest(assetId: string, peerId: string, approved: boolean) {
+    const state = useUIBuilderStore.getState();
+    const asset = state.uploadedAssets[assetId];
+    state.resolveAssetRequest(assetId, peerId);
+
+    const localId = peerNetworkManager.getLocalPeerId();
+    const msg = createMessage<UIAssetAccessResponsePayload>(UITypeKeys.ASSET_ACCESS_RESPONSE, localId, {
+      assetId,
+      approved: approved && !!asset,
+      fileName: asset?.fileName || 'Private photo',
+      mimeType: asset?.mimeType,
+      size: asset?.size,
+      dataUrl: approved ? asset?.dataUrl : undefined
+    }, peerId);
+    peerNetworkManager.sendToPeer(peerId, msg);
   },
 
   respondToEditRequest(peerId: string, approved: boolean) {
@@ -280,6 +311,32 @@ export const EditorAPI = {
         useUIBuilderStore.getState().setEditAccess(true);
       } else {
         console.warn('[EditorAPI] Edit Access rejected by host.');
+      }
+    });
+
+    messageBus.on<UIAssetAccessRequestPayload>(UITypeKeys.ASSET_ACCESS_REQUEST, (msg) => {
+      const state = useUIBuilderStore.getState();
+      const asset = state.uploadedAssets[msg.payload.assetId];
+      if (!asset) return;
+      state.addPendingAssetRequest({
+        assetId: msg.payload.assetId,
+        fileName: msg.payload.fileName || asset.fileName,
+        peerId: msg.payload.requestingPeerId || msg.fromPeerId
+      });
+    });
+
+    messageBus.on<UIAssetAccessResponsePayload>(UITypeKeys.ASSET_ACCESS_RESPONSE, (msg) => {
+      if (msg.payload.approved && msg.payload.dataUrl) {
+        useUIBuilderStore.getState().addUploadedAsset({
+          id: msg.payload.assetId,
+          fileName: msg.payload.fileName,
+          mimeType: msg.payload.mimeType || 'image/*',
+          size: msg.payload.size || 0,
+          dataUrl: msg.payload.dataUrl,
+          ownerPeerId: msg.fromPeerId
+        });
+      } else {
+        useUIBuilderStore.getState().markAssetDenied(msg.payload.assetId);
       }
     });
 

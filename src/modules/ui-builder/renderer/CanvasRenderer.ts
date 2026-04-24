@@ -11,7 +11,7 @@ export class CanvasRenderer implements Renderer {
   private scrollY: number = 0;
   private mediaCache: Map<string, HTMLImageElement | HTMLVideoElement> = new Map();
 
-  render(document: DesignDocument, canvas: HTMLCanvasElement, selectedIds: string[], viewport: any, activeLayoutId: string, activePageId: string, nodeLocks: Record<string, string> = {}, localPeerId: string = '', hoveredNodeId: string | null = null, onMediaLoad?: () => void): void {
+  render(document: DesignDocument, canvas: HTMLCanvasElement, selectedIds: string[], viewport: any, activeLayoutId: string, activePageId: string, nodeLocks: Record<string, string> = {}, localPeerId: string = '', hoveredNodeId: string | null = null, resolveAsset?: (assetId: string) => string | null, onMediaLoad?: () => void): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     this.ctx = ctx;
@@ -31,7 +31,7 @@ export class CanvasRenderer implements Renderer {
     if (page) {
       page.nodes.forEach(node => {
         NodeFactory.computeStyles(node);
-        this.renderNode(node, selectedIds, nodeLocks, localPeerId, hoveredNodeId, onMediaLoad);
+        this.renderNode(node, selectedIds, nodeLocks, localPeerId, hoveredNodeId, resolveAsset, onMediaLoad);
       });
 
       const labelSize = Math.max(9, 12 / this.zoom);
@@ -47,7 +47,7 @@ export class CanvasRenderer implements Renderer {
     ctx.restore();
   }
 
-  private renderNode(node: DesignNode, selectedIds: string[], nodeLocks: Record<string, string>, localPeerId: string, hoveredNodeId: string | null, onMediaLoad?: () => void): void {
+  private renderNode(node: DesignNode, selectedIds: string[], nodeLocks: Record<string, string>, localPeerId: string, hoveredNodeId: string | null, resolveAsset?: (assetId: string) => string | null, onMediaLoad?: () => void): void {
     if (!this.ctx) return;
     const ctx = this.ctx;
     ctx.save();
@@ -79,7 +79,9 @@ export class CanvasRenderer implements Renderer {
     // ── Media Rendering (Image/Video) ──
     if (node.type === NodeType.IMAGE || node.type === NodeType.VIDEO) {
       const srcDec = node.decorators.find(d => d.type === 'source');
-      const url = srcDec?.config.url;
+      const assetId = srcDec?.config.assetId;
+      const assetUrl = assetId ? resolveAsset?.(assetId) : null;
+      const url = assetUrl || srcDec?.config.url;
       if (url) {
         let media = this.mediaCache.get(url);
         if (!media) {
@@ -101,6 +103,8 @@ export class CanvasRenderer implements Renderer {
         } else if (media instanceof HTMLVideoElement && media.readyState >= 2) {
           ctx.drawImage(media, 0, 0, node.width, node.height);
         }
+      } else if (assetId) {
+        this.drawMissingAssetPlaceholder(node.width, node.height, srcDec?.config.fileName || 'Private photo');
       }
     }
 
@@ -126,7 +130,7 @@ export class CanvasRenderer implements Renderer {
 
     // ── Children ──
     if (node.children) {
-      node.children.forEach(child => this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId, onMediaLoad));
+      node.children.forEach(child => this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId, resolveAsset, onMediaLoad));
     }
 
     // ── Selection/Hover/Locks Overlays ──
@@ -161,6 +165,28 @@ export class CanvasRenderer implements Renderer {
       ctx.setLineDash([]);
     }
 
+    ctx.restore();
+  }
+
+  private drawMissingAssetPlaceholder(width: number, height: number, fileName: string): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.12)';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = 'rgba(139, 92, 246, 0.55)';
+    ctx.lineWidth = 1 / this.zoom;
+    ctx.setLineDash([5 / this.zoom, 4 / this.zoom]);
+    ctx.strokeRect(0, 0, width, height);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#c4b5fd';
+    ctx.font = `600 ${Math.max(10, 12 / this.zoom)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Photo access required', width / 2, height / 2 - 7 / this.zoom);
+    ctx.font = `500 ${Math.max(8, 10 / this.zoom)}px Inter, system-ui, sans-serif`;
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(fileName.slice(0, 32), width / 2, height / 2 + 11 / this.zoom);
     ctx.restore();
   }
 

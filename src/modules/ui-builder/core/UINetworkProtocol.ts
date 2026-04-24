@@ -12,6 +12,8 @@ export const UITypeKeys = {
   NODE_LOCK_REQUEST: 'ui/node-lock-request' as MessageType,
   NODE_LOCK_RESPONSE: 'ui/node-lock-response' as MessageType,
   NODE_UNLOCK: 'ui/node-unlock' as MessageType,
+  ASSET_ACCESS_REQUEST: 'ui/asset-access-request' as MessageType,
+  ASSET_ACCESS_RESPONSE: 'ui/asset-access-response' as MessageType,
 };
 
 export interface UIDocSyncRequestPayload {
@@ -45,4 +47,19 @@ export interface UINodeLockResponsePayload {
 export interface UINodeUnlockPayload {
   peerId: string;
   nodeId: string;
+}
+
+export interface UIAssetAccessRequestPayload {
+  assetId: string;
+  fileName: string;
+  requestingPeerId: string;
+}
+
+export interface UIAssetAccessResponsePayload {
+  assetId: string;
+  approved: boolean;
+  fileName: string;
+  mimeType?: string;
+  size?: number;
+  dataUrl?: string;
 }

@@ -3,6 +3,21 @@ import { DesignDocument } from './core/DesignDocument';
 import { NodeFactory } from './core/NodeFactory';
 import { NodeType } from './core/NodeTypes';
 
+export interface UIUploadedAsset {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
+  ownerPeerId: string;
+}
+
+export interface UIAssetAccessRequest {
+  assetId: string;
+  fileName: string;
+  peerId: string;
+}
+
 interface UIBuilderState {
   document: DesignDocument;
   selectedNodeIds: string[];
@@ -15,6 +30,9 @@ interface UIBuilderState {
   hasEditAccess: boolean;
   pendingEditRequests: string[];
   allowedPeers: string[];
+  uploadedAssets: Record<string, UIUploadedAsset>;
+  pendingAssetRequests: UIAssetAccessRequest[];
+  requestedAssetIds: Record<string, 'requested' | 'denied'>;
   peerStates: Record<string, any>;
   nodeLocks: Record<string, string>;
 
@@ -40,6 +58,11 @@ interface UIBuilderState {
   addEditRequest: (peerId: string) => void;
   resolveEditRequest: (peerId: string, approved: boolean) => void;
   joinSession: (hostPeerId: string | null, asHost?: boolean) => void;
+  addUploadedAsset: (asset: UIUploadedAsset) => void;
+  addPendingAssetRequest: (request: UIAssetAccessRequest) => void;
+  resolveAssetRequest: (assetId: string, peerId: string) => void;
+  markAssetRequested: (assetId: string) => void;
+  markAssetDenied: (assetId: string) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -216,6 +239,9 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   hasEditAccess: true,
   pendingEditRequests: [],
   allowedPeers: [],
+  uploadedAssets: {},
+  pendingAssetRequests: [],
+  requestedAssetIds: {},
   peerStates: {},
   nodeLocks: {},
 
@@ -252,6 +278,26 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
     selectedNodeIds: [],
     nodeLocks: {},
     pendingEditRequests: asHost ? state.pendingEditRequests : [],
+    pendingAssetRequests: asHost ? state.pendingAssetRequests : [],
+    requestedAssetIds: {},
+  })),
+  addUploadedAsset: (asset) => set((state) => ({
+    uploadedAssets: { ...state.uploadedAssets, [asset.id]: asset },
+    requestedAssetIds: { ...state.requestedAssetIds, [asset.id]: 'requested' }
+  })),
+  addPendingAssetRequest: (request) => set((state) => ({
+    pendingAssetRequests: state.pendingAssetRequests.some(r => r.assetId === request.assetId && r.peerId === request.peerId)
+      ? state.pendingAssetRequests
+      : [...state.pendingAssetRequests, request]
+  })),
+  resolveAssetRequest: (assetId, peerId) => set((state) => ({
+    pendingAssetRequests: state.pendingAssetRequests.filter(r => !(r.assetId === assetId && r.peerId === peerId))
+  })),
+  markAssetRequested: (assetId) => set((state) => ({
+    requestedAssetIds: { ...state.requestedAssetIds, [assetId]: 'requested' }
+  })),
+  markAssetDenied: (assetId) => set((state) => ({
+    requestedAssetIds: { ...state.requestedAssetIds, [assetId]: 'denied' }
   })),
 
   addNode: (node, parentId) => set((state) => {

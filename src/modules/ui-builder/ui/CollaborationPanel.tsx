@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Shield, Check, X, LogOut } from 'lucide-react';
+import { Users, Shield, Check, X, LogOut, Image as ImageIcon } from 'lucide-react';
 import { useUIBuilderStore } from '../store';
 import { EditorAPI } from '../core/EditorAPI';
 import { peerNetworkManager } from '@/core/network/PeerNetworkManager';
 
 export const CollaborationPanel: React.FC = () => {
-    const { hostPeerId, hasEditAccess, pendingEditRequests } = useUIBuilderStore();
+    const { hostPeerId, hasEditAccess, pendingEditRequests, pendingAssetRequests } = useUIBuilderStore();
     const [peers, setPeers] = useState<string[]>([]);
     const [selectedPeer, setSelectedPeer] = useState<string>('');
 
@@ -92,6 +92,32 @@ export const CollaborationPanel: React.FC = () => {
                                         <Check size={12} />
                                     </button>
                                     <button onClick={() => EditorAPI.respondToEditRequest(reqId, false)} className="text-error-400 hover:bg-surface-400 p-1 rounded">
+                                        <X size={12} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {pendingAssetRequests.length > 0 && (
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-violet-300 text-xs font-bold animate-pulse">
+                        <ImageIcon size={14} />
+                        {pendingAssetRequests.length} photo request(s)
+                    </div>
+
+                    <div className="flex bg-surface-200 rounded-lg p-1 border border-border">
+                        {pendingAssetRequests.map(req => (
+                            <div key={`${req.assetId}-${req.peerId}`} className="flex items-center gap-2 px-2 text-[10px] uppercase font-bold text-text-secondary">
+                                <span className="max-w-28 truncate">{req.fileName}</span>
+                                <span className="text-slate-500">{req.peerId.substring(0, 8)}...</span>
+                                <div className="flex gap-1">
+                                    <button onClick={() => EditorAPI.respondToAssetRequest(req.assetId, req.peerId, true)} className="text-success-400 hover:bg-surface-400 p-1 rounded">
+                                        <Check size={12} />
+                                    </button>
+                                    <button onClick={() => EditorAPI.respondToAssetRequest(req.assetId, req.peerId, false)} className="text-error-400 hover:bg-surface-400 p-1 rounded">
                                         <X size={12} />
                                     </button>
                                 </div>
