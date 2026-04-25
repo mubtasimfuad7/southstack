@@ -103,23 +103,67 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
     anchor.click();
     URL.revokeObjectURL(url);
   };
+  // Robust validation for imported design JSON
+  function validateDesignJson(json: any): boolean {
+    if (!json) return false;
+    // Accept either a bundle or a raw document
+    const doc = json.document ?? json;
+    if (!doc.layouts || !Array.isArray(doc.layouts) || doc.layouts.length === 0) return false;
+    for (const layout of doc.layouts) {
+      if (!layout.pages || !Array.isArray(layout.pages) || layout.pages.length === 0) return false;
+      for (const page of layout.pages) {
+        if (!page.nodes || !Array.isArray(page.nodes)) return false;
+      }
+    }
+    return true;
+  }
+
+  // Import nodes into the currently selected page
   const handleImportJson = async (file: File | null) => {
     if (!file) return;
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as DesignBundleFile | any;
-      const nextDocument = parsed.document ?? parsed;
-      if (!nextDocument?.layouts || !Array.isArray(nextDocument.layouts)) {
-        throw new Error('Invalid design JSON');
-      }
+      if (!validateDesignJson(parsed)) throw new Error('Invalid design JSON');
 
-      const nextAssets = Object.fromEntries(
+      // Accept either a bundle or a raw document
+      const nextDocument = parsed.document ?? parsed;
+      const importedAssets = Object.fromEntries(
         Object.entries(parsed.uploadedAssets || {}).map(([assetId, asset]: [string, any]) => [
           assetId,
           { ...asset, ownerPeerId: localPeerId || asset.ownerPeerId }
         ])
       );
-      EditorAPI.replaceDocument(nextDocument, nextAssets);
+
+      // Insert nodes into the currently selected page
+      const importedLayouts = nextDocument.layouts;
+      const importedNodes: any[] = [];
+      for (const layout of importedLayouts) {
+        for (const page of layout.pages) {
+          if (Array.isArray(page.nodes)) importedNodes.push(...page.nodes);
+        }
+      }
+
+      if (importedNodes.length === 0) throw new Error('No nodes to import');
+
+      // Insert into current page
+      const state = useUIBuilderStore.getState();
+      const layout = state.document.layouts.find(l => l.id === state.activeLayoutId) || state.document.layouts[0];
+      const page = layout.pages.find(p => p.id === state.activePageId) || layout.pages[0];
+      if (!page) throw new Error('No active page to import into');
+
+      // Add imported nodes to the page
+      page.nodes.push(...importedNodes);
+      // Optionally merge assets
+      const mergedAssets = { ...state.uploadedAssets, ...importedAssets };
+      // Recompute styles for imported nodes
+      importedNodes.forEach(n => NodeFactory.computeStyles(n));
+
+      // Update state
+      useUIBuilderStore.setState({
+        document: state.document,
+        uploadedAssets: mergedAssets
+      });
     } catch (error) {
       console.error('Failed to import design JSON:', error);
       window.alert('Could not import this design JSON file.');
@@ -169,9 +213,9 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
           />
           <CollaborationPanel />
           {onClose && (
-            <button 
-              onClick={onClose} 
-              className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1 border border-transparent hover:border-slate-700" 
+            <button
+              onClick={onClose}
+              className="w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1 border border-transparent hover:border-slate-700"
               title="Close UI Builder"
             >
               ✕
@@ -184,7 +228,7 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
       <div className="grow flex overflow-hidden">
         {/* LEFT SIDEBAR */}
         <aside className="w-64 shrink-0 border-r border-white/[0.07] bg-[#15161f] flex flex-col overflow-hidden">
-          <div className="h-1/3 flex flex-col border-b border-white/[0.07] overflow-hidden">
+          <div className="min-h-[200px] flex flex-col border-b border-white/[0.07] overflow-hidden">
             <div className="p-2 flex items-center justify-between">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Pages</span>
               <div className="flex items-center gap-1">
@@ -281,29 +325,31 @@ export const BuilderRoot: React.FC<{ onClose?: () => void }> = ({ onClose }) => 
             <PropertyInspector />
           </div>
         </aside>
-      </div>
+      </div >
 
       {/* CONTEXT MENU */}
-      {ctxMenu && (
-        <div
-          className="fixed z-[100] w-48 bg-[#222336] border border-white/10 rounded-lg shadow-2xl py-1 transform -translate-y-2 animate-in fade-in slide-in-from-top-1 duration-150"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
-        >
-          {selectedNodeIds.length >= 2 && (
-            <MenuBtn icon={<Layers2 size={13} />} label="Group Selection" sub="Ctrl+G" onClick={() => { groupNodes(selectedNodeIds); setCtxMenu(null); }} />
-          )}
-          {ctxMenu.nodeType === NodeType.GROUP && (
-            <MenuBtn icon={<Unlink size={13} />} label="Ungroup" sub="Ctrl+Shift+G" onClick={() => { ungroupNode(ctxMenu.nodeId); setCtxMenu(null); }} />
-          )}
-          <MenuBtn icon={<ArrowUp size={13} />} label="Bring Forward" sub="]" onClick={() => { reorderNode(ctxMenu.nodeId, 'up'); setCtxMenu(null); }} />
-          <MenuBtn icon={<ArrowDown size={13} />} label="Send Backward" sub="[" onClick={() => { reorderNode(ctxMenu.nodeId, 'down'); setCtxMenu(null); }} />
-          <div className="h-px bg-white/5 my-1" />
-          <MenuBtn icon={<Trash2 size={13} />} label="Delete" sub="Del" onClick={() => { useUIBuilderStore.getState().deleteNode(ctxMenu.nodeId); setCtxMenu(null); }} danger />
-        </div>
-      )}
+      {
+        ctxMenu && (
+          <div
+            className="fixed z-[100] w-48 bg-[#222336] border border-white/10 rounded-lg shadow-2xl py-1 transform -translate-y-2 animate-in fade-in slide-in-from-top-1 duration-150"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            {selectedNodeIds.length >= 2 && (
+              <MenuBtn icon={<Layers2 size={13} />} label="Group Selection" sub="Ctrl+G" onClick={() => { groupNodes(selectedNodeIds); setCtxMenu(null); }} />
+            )}
+            {ctxMenu.nodeType === NodeType.GROUP && (
+              <MenuBtn icon={<Unlink size={13} />} label="Ungroup" sub="Ctrl+Shift+G" onClick={() => { ungroupNode(ctxMenu.nodeId); setCtxMenu(null); }} />
+            )}
+            <MenuBtn icon={<ArrowUp size={13} />} label="Bring Forward" sub="]" onClick={() => { reorderNode(ctxMenu.nodeId, 'up'); setCtxMenu(null); }} />
+            <MenuBtn icon={<ArrowDown size={13} />} label="Send Backward" sub="[" onClick={() => { reorderNode(ctxMenu.nodeId, 'down'); setCtxMenu(null); }} />
+            <div className="h-px bg-white/5 my-1" />
+            <MenuBtn icon={<Trash2 size={13} />} label="Delete" sub="Del" onClick={() => { useUIBuilderStore.getState().deleteNode(ctxMenu.nodeId); setCtxMenu(null); }} danger />
+          </div>
+        )
+      }
 
       <AICopilotPanel />
-    </div>
+    </div >
   );
 };
 

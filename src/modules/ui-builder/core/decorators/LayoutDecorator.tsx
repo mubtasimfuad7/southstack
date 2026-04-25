@@ -44,7 +44,13 @@ export class LayoutDecorator extends BaseDecorator {
       if (config.width !== undefined) node.width = config.width;
     }
 
-    if (config.height !== undefined) node.height = config.height;
+    // Percentage height logic
+    if (config.isPercentHeight && parent) {
+      const percentage = config.heightPercent || 100;
+      node.height = (parent.height * percentage) / 100;
+    } else {
+      if (config.height !== undefined) node.height = config.height;
+    }
   }
 
   renderUI(node: DesignNode, config: any, update: (newConfig: any) => void): React.ReactNode {
@@ -57,6 +63,7 @@ export class LayoutDecorator extends BaseDecorator {
       update({
         framePreset: preset,
         isPercentWidth: false,
+        isPercentHeight: false,
         width: next.width,
         height: next.height
       });
@@ -87,28 +94,53 @@ export class LayoutDecorator extends BaseDecorator {
           <LayoutPropInput label="Y" value={config.y || 0} icon={Move} onChange={(v: number) => update({ y: v })} />
         </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] uppercase font-bold text-text-dim">Width Mode</span>
-            <div className="flex bg-surface-400 p-0.5 rounded border border-white/5">
-              <button
-                onClick={() => update({ isPercentWidth: false })}
-                className={`px-2 py-0.5 text-[8px] rounded transition-colors ${!config.isPercentWidth ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
-              >Fixed</button>
-              <button
-                onClick={() => update({ isPercentWidth: true })}
-                className={`px-2 py-0.5 text-[8px] rounded transition-colors ${config.isPercentWidth ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
-              >Fill %</button>
+        <div className="space-y-4">
+          {/* Width controls */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[9px] uppercase font-bold text-text-dim">Width Mode</span>
+              <div className="flex bg-surface-400 p-0.5 rounded border border-white/5">
+                <button
+                  onClick={() => update({ isPercentWidth: false })}
+                  className={`px-2 py-0.5 text-[8px] rounded transition-colors ${!config.isPercentWidth ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
+                >Fixed</button>
+                <button
+                  onClick={() => update({ isPercentWidth: true })}
+                  className={`px-2 py-0.5 text-[8px] rounded transition-colors ${config.isPercentWidth ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
+                >Fill %</button>
+              </div>
+            </div>
+            <div>
+              {config.isPercentWidth ? (
+                <LayoutPropInput label="Width %" value={config.widthPercent || 100} icon={Percent} onChange={(v: number) => update({ widthPercent: v })} />
+              ) : (
+                <LayoutPropInput label="Width" value={config.width || 100} icon={Maximize} onChange={(v: number) => update({ width: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
+              )}
             </div>
           </div>
 
-          <div className="flex gap-2">
-            {config.isPercentWidth ? (
-              <LayoutPropInput label="Width %" value={config.widthPercent || 100} icon={Percent} onChange={(v: number) => update({ widthPercent: v })} />
-            ) : (
-              <LayoutPropInput label="Width" value={config.width || 100} icon={Maximize} onChange={(v: number) => update({ width: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
-            )}
-            <LayoutPropInput label="Height" value={config.height || 100} icon={Maximize} onChange={(v: number) => update({ height: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
+          {/* Height controls */}
+          <div>
+            <div className="flex items-center justify-between mb-1 mt-2">
+              <span className="text-[9px] uppercase font-bold text-text-dim">Height Mode</span>
+              <div className="flex bg-surface-400 p-0.5 rounded border border-white/5">
+                <button
+                  onClick={() => update({ isPercentHeight: false })}
+                  className={`px-2 py-0.5 text-[8px] rounded transition-colors ${!config.isPercentHeight ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
+                >Fixed</button>
+                <button
+                  onClick={() => update({ isPercentHeight: true })}
+                  className={`px-2 py-0.5 text-[8px] rounded transition-colors ${config.isPercentHeight ? 'bg-violet-600 text-white' : 'text-slate-400'}`}
+                >Fill %</button>
+              </div>
+            </div>
+            <div>
+              {config.isPercentHeight ? (
+                <LayoutPropInput label="Height %" value={config.heightPercent || 100} icon={Percent} onChange={(v: number) => update({ heightPercent: v })} />
+              ) : (
+                <LayoutPropInput label="Height" value={config.height || 100} icon={Maximize} onChange={(v: number) => update({ height: v, framePreset: node.type === NodeType.FRAME ? 'custom' : config.framePreset })} />
+              )}
+            </div>
           </div>
         </div>
       </div>

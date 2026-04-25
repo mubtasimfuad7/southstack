@@ -54,6 +54,16 @@ export const AICopilotPanel: React.FC = () => {
     };
   }, [pendingAttachments]);
 
+  // Pre-load both models in parallel as soon as the builder mounts
+  useEffect(() => {
+    if (!localModelProvider.isReady()) {
+      localModelProvider.initialize().catch(console.error);
+    }
+    if (!localVisionModelProvider.isReady()) {
+      localVisionModelProvider.initialize().catch(console.error);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -185,12 +195,20 @@ export const AICopilotPanel: React.FC = () => {
       <div className="h-14 bg-slate-900 flex items-center px-4 justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-xl">✨</span>
-          <h3 className="text-white font-medium text-sm">Design Copilot</h3>
-          {modelState.ready ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">Model Loaded</span>
-          ) : modelState.progress > 0 && modelState.progress < 1 ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium animate-pulse">{Math.round(modelState.progress * 100)}% Loading</span>
-          ) : null}
+          <h3 className="text-white font-medium text-sm w-max">Design Copilot</h3>
+          <div className="flex items-center gap-1.5 overflow-x-hidden">
+            {modelState.ready ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap">LLM Ready</span>
+            ) : modelState.progress > 0 && modelState.progress < 1 ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium animate-pulse whitespace-nowrap">LLM {Math.round(modelState.progress * 100)}%</span>
+            ) : null}
+            
+            {visionModelState.ready ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap">Vision Ready</span>
+            ) : visionModelState.progress > 0 && visionModelState.progress < 1 ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium animate-pulse whitespace-nowrap">Vision {Math.round(visionModelState.progress * 100)}%</span>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={handleClear} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-white rounded hover:bg-slate-800 text-xs transition-colors" title="Reset Conversation">↺</button>

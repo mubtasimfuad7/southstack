@@ -1,7 +1,7 @@
 import { BaseDecorator } from './DesignNode';
 import { BackgroundDecorator } from './decorators/BackgroundDecorator';
 import { LayoutDecorator } from './decorators/LayoutDecorator';
-import { TextColorDecorator, TextAlignDecorator } from './decorators/TextDecorators';
+import { TextColorDecorator, TextAlignDecorator, TextStyleDecorator } from './decorators/TextDecorators';
 import { StyleDecorator } from './decorators/StyleDecorator';
 import { MediaDecorator } from './decorators/MediaDecorator';
 
@@ -13,6 +13,7 @@ class DecoratorRegistryImpl {
     this.register(new LayoutDecorator());
     this.register(new TextColorDecorator());
     this.register(new TextAlignDecorator());
+    this.register(new TextStyleDecorator());
     this.register(new StyleDecorator());
     this.register(new MediaDecorator());
   }

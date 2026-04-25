@@ -1,6 +1,6 @@
 import React from 'react';
 import { BaseDecorator, CSSAttributes, DesignNode } from '../DesignNode';
-import { Sun, Ghost, BoxSelect } from 'lucide-react';
+import { Sun, Ghost, BoxSelect, Square } from 'lucide-react';
 
 export class StyleDecorator extends BaseDecorator {
     type = 'style';
@@ -8,6 +8,8 @@ export class StyleDecorator extends BaseDecorator {
     decorate(node: DesignNode, config: any, attributes: CSSAttributes, parent?: DesignNode): void {
         if (config.opacity !== undefined) attributes.opacity = config.opacity / 100;
         if (config.blur !== undefined && config.blur > 0) attributes.filter = `blur(${config.blur}px)`;
+        if (config.radius !== undefined) attributes.borderRadius = `${config.radius}px`;
+        if (config.overflowHidden !== undefined) attributes.overflow = config.overflowHidden ? 'hidden' : 'visible';
         if (config.shadowEnabled) {
             const { x = 0, y = 4, blur = 10, color = 'rgba(0,0,0,0.5)' } = config.shadow || {};
             attributes.boxShadow = `${x}px ${y}px ${blur}px ${color}`;
@@ -40,6 +42,31 @@ export class StyleDecorator extends BaseDecorator {
                         type="range" min="0" max="50" value={config.blur ?? 0}
                         onChange={(e) => update({ blur: parseInt(e.target.value) })}
                         className="w-full accent-violet-500 h-1 bg-surface-300 rounded-lg appearance-none cursor-pointer"
+                    />
+                </div>
+
+                {/* Corner Radius */}
+                <div className="space-y-1">
+                    <div className="flex justify-between items-center text-[10px] text-text-dim uppercase font-bold">
+                        <div className="flex items-center gap-1"><Square size={10} /> Radius</div>
+                        <span>{config.radius || 0}px</span>
+                    </div>
+                    <input
+                        type="range" min="0" max="100" value={config.radius ?? 0}
+                        onChange={(e) => update({ radius: parseInt(e.target.value) })}
+                        className="w-full accent-violet-500 h-1 bg-surface-300 rounded-lg appearance-none cursor-pointer"
+                    />
+                </div>
+
+                {/* Overflow */}
+                <div className="flex items-center justify-between">
+                    <div className="text-[10px] text-text-dim uppercase font-bold flex items-center gap-1">
+                        Clip Content
+                    </div>
+                    <input
+                        type="checkbox" checked={!!config.overflowHidden}
+                        onChange={(e) => update({ overflowHidden: e.target.checked })}
+                        className="w-3 h-3 accent-violet-500"
                     />
                 </div>
 

@@ -58,7 +58,17 @@ export class CanvasRenderer implements Renderer {
     ctx.translate(-node.width / 2, -node.height / 2);
 
     const attr = node.attributes || {};
+    const radius = parseFloat(attr.borderRadius || '0');
     
+    const tracePath = () => {
+      ctx.beginPath();
+      if (radius > 0) {
+        ctx.roundRect(0, 0, node.width, node.height, radius);
+      } else {
+        ctx.rect(0, 0, node.width, node.height);
+      }
+    };
+
     // ── Global Effects ──
     if (attr.opacity !== undefined) ctx.globalAlpha = attr.opacity;
     if (attr.filter) ctx.filter = attr.filter;
@@ -73,7 +83,8 @@ export class CanvasRenderer implements Renderer {
     // ── Shape Rendering ──
     if (attr.backgroundColor) {
       ctx.fillStyle = attr.backgroundColor;
-      ctx.fillRect(0, 0, node.width, node.height);
+      tracePath();
+      ctx.fill();
     }
 
     // ── Media Rendering (Image/Video) ──
@@ -98,11 +109,17 @@ export class CanvasRenderer implements Renderer {
           }
           this.mediaCache.set(url, media);
         }
+
+        ctx.save();
+        tracePath();
+        ctx.clip();
+        
         if (media instanceof HTMLImageElement && media.complete) {
           ctx.drawImage(media, 0, 0, node.width, node.height);
         } else if (media instanceof HTMLVideoElement && media.readyState >= 2) {
           ctx.drawImage(media, 0, 0, node.width, node.height);
         }
+        ctx.restore();
       } else if (assetId) {
         this.drawMissingAssetPlaceholder(node.width, node.height, srcDec?.config.fileName || 'Private photo');
       }
@@ -111,26 +128,79 @@ export class CanvasRenderer implements Renderer {
     // ── Text Rendering ──
     if (node.type === NodeType.TEXT && node.content) {
       ctx.fillStyle = attr.color || '#000000';
-      ctx.font = `${attr.fontWeight || 'normal'} ${attr.fontSize || 16}px Inter, Arial`;
+      const family = attr.fontFamily || 'Inter, Arial';
+      const fontSize = attr.fontSize || 16;
+      ctx.font = `${attr.fontWeight || 'normal'} ${fontSize}px ${family}`;
+      
+      const textAlign = attr.textAlign || (node.attributes.inheritedTextAlign);
+      const verticalAlign = attr.verticalAlign || (node.attributes.inheritedVerticalAlign);
+      
+      const maxWidth = node.width;
+      const lineHeight = fontSize * 1.2;
+      const words = node.content.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+
+      for (let n = 0; n < words.length; n++) {
+        const testLine = currentLine + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+          lines.push(currentLine.trim());
+          currentLine = words[n] + ' ';
+        } else {
+          currentLine = testLine;
+        }
+      }
+      lines.push(currentLine.trim());
+
+      const totalHeight = lines.length * lineHeight;
+      (node as any).measuredHeight = totalHeight;
       
       // Horizontal align
       let tx = 0;
-      if (attr.textAlign === 'center') { ctx.textAlign = 'center'; tx = node.width / 2; }
-      else if (attr.textAlign === 'right') { ctx.textAlign = 'right'; tx = node.width; }
+      if (textAlign === 'center') { ctx.textAlign = 'center'; tx = node.width / 2; }
+      else if (textAlign === 'right') { ctx.textAlign = 'right'; tx = node.width; }
+      else if (textAlign === 'justify') { ctx.textAlign = 'center'; tx = node.width / 2; }
       else ctx.textAlign = 'left';
 
-      // Vertical align
+      // Vertical align start point
       let ty = 0;
-      if (attr.verticalAlign === 'middle') { ctx.textBaseline = 'middle'; ty = node.height / 2; }
-      else if (attr.verticalAlign === 'bottom') { ctx.textBaseline = 'bottom'; ty = node.height; }
-      else { ctx.textBaseline = 'top'; ty = 0; }
+      if (verticalAlign === 'middle') { 
+        ctx.textBaseline = 'middle'; 
+        ty = (node.height - totalHeight) / 2 + (lineHeight / 2); 
+      }
+      else if (verticalAlign === 'bottom') { 
+        ctx.textBaseline = 'bottom'; 
+        ty = node.height - totalHeight + lineHeight; 
+      }
+      else { 
+        ctx.textBaseline = 'top'; 
+        ty = 0; 
+      }
 
-      ctx.fillText(node.content, tx, ty);
+      lines.forEach((line, i) => {
+        ctx.fillText(line, tx, ty + (i * lineHeight));
+      });
     }
 
     // ── Children ──
-    if (node.children) {
-      node.children.forEach(child => this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId, resolveAsset, onMediaLoad));
+    if (node.children && node.children.length > 0) {
+      const needsClip = radius > 0 || attr.overflow === 'hidden';
+      if (needsClip) {
+        ctx.save();
+        tracePath();
+        ctx.clip();
+      }
+
+      // Propagate alignment to children if set on parent
+      node.children.forEach(child => {
+        if (attr.textAlign) child.attributes.inheritedTextAlign = attr.textAlign;
+        if (attr.verticalAlign) child.attributes.inheritedVerticalAlign = attr.verticalAlign;
+        this.renderNode(child, selectedIds, nodeLocks, localPeerId, hoveredNodeId, resolveAsset, onMediaLoad);
+      });
+      
+      if (needsClip) ctx.restore();
     }
 
     // ── Selection/Hover/Locks Overlays ──
@@ -142,11 +212,14 @@ export class CanvasRenderer implements Renderer {
     const isLockedByOther = holder && holder !== localPeerId;
     const isSelected = selectedIds.includes(node.id);
     const isHovered = hoveredNodeId === node.id;
+    
+    // For auto-height text, use totalHeight for overlays
+    const displayHeight = (attr.autoHeight && (node as any).measuredHeight) ? (node as any).measuredHeight : node.height;
 
     if (isLockedByOther) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2 / this.zoom;
-      ctx.strokeRect(0, 0, node.width, node.height);
+      ctx.strokeRect(0, 0, node.width, displayHeight);
       ctx.fillStyle = '#ef4444';
       ctx.fillRect(0, -14 / this.zoom, Math.min(node.width, 100), 14 / this.zoom);
       ctx.fillStyle = '#ffffff';
@@ -155,13 +228,13 @@ export class CanvasRenderer implements Renderer {
     } else if (isSelected) {
       ctx.strokeStyle = '#6366f1';
       ctx.lineWidth = 2 / this.zoom;
-      ctx.strokeRect(0, 0, node.width, node.height);
-      this.drawHandles(node.width, node.height);
+      ctx.strokeRect(0, 0, node.width, displayHeight);
+      this.drawHandles(node.width, displayHeight);
     } else if (isHovered) {
       ctx.strokeStyle = '#6366f1';
       ctx.lineWidth = 1 / this.zoom;
       ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
-      ctx.strokeRect(0, 0, node.width, node.height);
+      ctx.strokeRect(0, 0, node.width, displayHeight);
       ctx.setLineDash([]);
     }
 
