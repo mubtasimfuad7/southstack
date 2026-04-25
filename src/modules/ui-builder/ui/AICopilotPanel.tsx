@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ImagePlus, Plus, X as CloseIcon } from 'lucide-react';
+import { ImagePlus, Mic, MicOff, Plus, X as CloseIcon } from 'lucide-react';
 import { AIAgentOrchestrator, AIResponse, AgentStatus } from '../ai/AIAgentOrchestrator';
 import { localModelProvider } from '@/execution/llm/LocalModelProvider';
 import { localVisionModelProvider } from '@/execution/vision/LocalVisionModelProvider';
@@ -29,6 +29,65 @@ export const AICopilotPanel: React.FC = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+
+      recognitionRef.current.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput((prev) => {
+          // If the last character isn't a space and we have new text, add a space
+          const separator = prev.length > 0 && !prev.endsWith(' ') ? ' ' : '';
+          return prev + separator + transcript;
+        });
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        setIsListening(false);
+      };
+    }
+
+    try {
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch (err) {
+      console.error('Failed to start recognition:', err);
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
 
   useEffect(() => {
     const unsubMsg = agent.onMessage((msg) => {
@@ -342,8 +401,18 @@ export const AICopilotPanel: React.FC = () => {
             onChange={(e) => setInput(e.target.value)}
             disabled={status === 'analyzing' || status === 'acting'}
             placeholder={status === 'idle' ? 'Ask anything' : 'Agent is thinking...'}
-            className="w-full pl-11 pr-10 py-2.5 bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 rounded-xl text-sm outline-none transition-all disabled:opacity-50 disabled:text-slate-400"
+            className="w-full pl-11 pr-20 py-2.5 bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 rounded-xl text-sm outline-none transition-all disabled:opacity-50 disabled:text-slate-400"
           />
+          <button
+            type="button"
+            onClick={toggleListening}
+            className={`absolute right-10 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+              isListening ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+            }`}
+            title={isListening ? 'Stop listening' : 'Start voice input'}
+          >
+            {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
           <button
             type="submit"
             disabled={!input.trim() || status === 'analyzing' || status === 'acting'}
