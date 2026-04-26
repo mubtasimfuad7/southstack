@@ -5,7 +5,7 @@ import { EditorAPI } from '../core/EditorAPI';
 import { peerNetworkManager } from '@/core/network/PeerNetworkManager';
 
 export const CollaborationPanel: React.FC = () => {
-    const { hostPeerId, hasEditAccess, pendingEditRequests, pendingAssetRequests } = useUIBuilderStore();
+    const { hostPeerId, hasEditAccess, pendingEditRequests, pendingJoinRequests, pendingAssetRequests } = useUIBuilderStore();
     const [peers, setPeers] = useState<string[]>([]);
     const [selectedPeer, setSelectedPeer] = useState<string>('');
 
@@ -76,28 +76,58 @@ export const CollaborationPanel: React.FC = () => {
             </div>
 
             {/* Incoming Requests Panel (Only visible if you are the host) */}
-            {!isRemoteSession && pendingEditRequests.length > 0 && (
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5 text-warning-400 text-xs font-bold animate-pulse">
-                        <Shield size={14} />
-                        {pendingEditRequests.length} edit request(s)
-                    </div>
-
-                    <div className="flex bg-surface-200 rounded-lg p-1 border border-border">
-                        {pendingEditRequests.map(reqId => (
-                            <div key={reqId} className="flex items-center gap-2 px-2 text-[10px] uppercase font-bold text-text-secondary">
-                                {reqId.substring(0, 8)}...
-                                <div className="flex gap-1">
-                                    <button onClick={() => EditorAPI.respondToEditRequest(reqId, true)} className="text-success-400 hover:bg-surface-400 p-1 rounded">
-                                        <Check size={12} />
-                                    </button>
-                                    <button onClick={() => EditorAPI.respondToEditRequest(reqId, false)} className="text-error-400 hover:bg-surface-400 p-1 rounded">
-                                        <X size={12} />
-                                    </button>
-                                </div>
+            {!isRemoteSession && (pendingEditRequests.length > 0 || pendingJoinRequests.length > 0) && (
+                <div className="flex items-center gap-4">
+                    {/* Join Requests */}
+                    {pendingJoinRequests.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 text-primary-400 text-xs font-bold animate-pulse">
+                                <Users size={14} />
+                                {pendingJoinRequests.length} join request(s)
                             </div>
-                        ))}
-                    </div>
+                            <div className="flex bg-surface-200 rounded-lg p-1 border border-border">
+                                {pendingJoinRequests.map(reqId => (
+                                    <div key={reqId} className="flex items-center gap-2 px-2 text-[10px] uppercase font-bold text-text-secondary">
+                                        {reqId.substring(0, 8)}...
+                                        <div className="flex gap-1">
+                                            <button onClick={() => EditorAPI.respondToJoinRequest(reqId, true)} className="text-success-400 hover:bg-surface-400 p-1 rounded">
+                                                <Check size={12} />
+                                            </button>
+                                            <button onClick={() => EditorAPI.respondToJoinRequest(reqId, false)} className="text-error-400 hover:bg-surface-400 p-1 rounded">
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Requests */}
+                    {pendingEditRequests.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 text-warning-400 text-xs font-bold animate-pulse">
+                                <Shield size={14} />
+                                {pendingEditRequests.length} edit request(s)
+                            </div>
+
+                            <div className="flex bg-surface-200 rounded-lg p-1 border border-border">
+                                {pendingEditRequests.map(reqId => (
+                                    <div key={reqId} className="flex items-center gap-2 px-2 text-[10px] uppercase font-bold text-text-secondary">
+                                        {reqId.substring(0, 8)}...
+                                        <div className="flex gap-1">
+                                            <button onClick={() => EditorAPI.respondToEditRequest(reqId, true)} className="text-success-400 hover:bg-surface-400 p-1 rounded">
+                                                <Check size={12} />
+                                            </button>
+                                            <button onClick={() => EditorAPI.respondToEditRequest(reqId, false)} className="text-error-400 hover:bg-surface-400 p-1 rounded">
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

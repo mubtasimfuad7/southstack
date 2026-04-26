@@ -13,18 +13,17 @@ export const EditorAPI = {
 
   select(nodeIds: string[], multiple = false) {
     const state = useUIBuilderStore.getState();
-    const localId = peerNetworkManager.getLocalPeerId();
     
-    // Release previous locks if editing a remote doc
-    if (state.hostPeerId && state.hostPeerId !== localId) {
+    // Release previous locks
+    if (state.hasEditAccess) {
       state.selectedNodeIds.forEach(id => this.releaseNodeLock(id));
     }
     
     state.selectNodes(nodeIds, multiple);
     this.broadcastLocalState();
     
-    // Request new locks if editing a remote doc and we have access
-    if (state.hostPeerId && state.hostPeerId !== localId && state.hasEditAccess) {
+    // Request new locks
+    if (state.hasEditAccess) {
       nodeIds.forEach(id => this.requestNodeLock(id));
     }
   },
@@ -155,6 +154,27 @@ export const EditorAPI = {
     peerNetworkManager.sendToPeer(peerId, msg);
   },
 
+  respondToJoinRequest(peerId: string, approved: boolean) {
+    const localId = peerNetworkManager.getLocalPeerId();
+    const state = useUIBuilderStore.getState();
+    state.resolveJoinRequest(peerId, approved);
+
+    if (approved) {
+      // Send document to the new peer
+      const msg = createMessage<UIDocSyncPayload>(UITypeKeys.DOC_SYNC, localId, {
+        document: state.document,
+        hostPeerId: localId
+      }, peerId);
+      peerNetworkManager.sendToPeer(peerId, msg);
+
+      // Also grant edit access by default as requested by the user flow ("trusted")
+      const accessMsg = createMessage<UIEditAccessResponsePayload>(UITypeKeys.EDIT_ACCESS_RESPONSE, localId, {
+        status: 'approved'
+      }, peerId);
+      peerNetworkManager.sendToPeer(peerId, accessMsg);
+    }
+  },
+
   requestNodeLock(nodeId: string) {
     const state = useUIBuilderStore.getState();
     const localId = peerNetworkManager.getLocalPeerId();
@@ -215,16 +235,26 @@ export const EditorAPI = {
   // --- REMOTE ACTIONS ---
 
   onPeerUpdate(peerId: string, patch: any) {
-    // No-op for document. The `ui/doc-sync` handles bulk transfers manually.
+    useUIBuilderStore.getState().updatePeerState(peerId, patch);
   },
 
   onPeerLeave(peerId: string) {
     const state = useUIBuilderStore.getState();
+    const localId = peerNetworkManager.getLocalPeerId();
     
     // Clear any locks held by the disconnected peer
     Object.entries(state.nodeLocks).forEach(([nodeId, holderId]) => {
-      if (holderId === peerId) state.setNodeLock(nodeId, null);
+      if (holderId === peerId) {
+        state.setNodeLock(nodeId, null);
+        // If we are the host, broadcast the unlock to everyone else
+        if (!state.hostPeerId || state.hostPeerId === localId) {
+          const responsePayload: UINodeLockResponsePayload = { nodeId, lockedByPeerId: peerId, locked: false };
+          peerNetworkManager.broadcast(createMessage(UITypeKeys.NODE_LOCK_RESPONSE, localId, responsePayload));
+        }
+      }
     });
+
+    state.removePeerState(peerId);
 
     if (state.hostPeerId === peerId) {
       console.warn(`[EditorAPI] Host peer left. Terminating collaborative session.`);
@@ -296,14 +326,8 @@ export const EditorAPI = {
 
     // Handle DOC SYNC Requests from new viewers
     messageBus.on<UIDocSyncRequestPayload>(UITypeKeys.DOC_SYNC_REQUEST, (msg) => {
-      const state = useUIBuilderStore.getState();
-      const localId = peerNetworkManager.getLocalPeerId();
-      
-      const response = createMessage<UIDocSyncPayload>(UITypeKeys.DOC_SYNC, localId, {
-        document: state.document,
-        hostPeerId: localId
-      }, msg.fromPeerId);
-      peerNetworkManager.sendToPeer(msg.fromPeerId, response);
+      console.log('[EditorAPI] Peer requested to JOIN session', msg.fromPeerId);
+      useUIBuilderStore.getState().addJoinRequest(msg.fromPeerId);
     });
 
     // Explicit View Sync
@@ -334,6 +358,13 @@ export const EditorAPI = {
       const state = useUIBuilderStore.getState();
       const asset = state.uploadedAssets[msg.payload.assetId];
       if (!asset) return;
+
+      // Automatically approve if peer is already allowed (trusted)
+      if (state.allowedPeers.includes(msg.fromPeerId)) {
+        this.respondToAssetRequest(msg.payload.assetId, msg.fromPeerId, true);
+        return;
+      }
+
       state.addPendingAssetRequest({
         assetId: msg.payload.assetId,
         fileName: msg.payload.fileName || asset.fileName,
@@ -400,5 +431,24 @@ export const EditorAPI = {
         }
       }
     });
+
+    // --- ORPHANED LOCK CLEANUP ---
+    // Periodically check for locks held by peers that are no longer connected
+    setInterval(() => {
+      const state = useUIBuilderStore.getState();
+      const localId = peerNetworkManager.getLocalPeerId();
+      
+      // Only the host should perform global cleanup
+      if (!state.hostPeerId || state.hostPeerId === localId) {
+        const connectedPeers = peerNetworkManager.getConnectedPeers();
+        Object.entries(state.nodeLocks).forEach(([nodeId, holderId]) => {
+          // If the holder is not us and not in the connected peers list, clear it
+          if (holderId !== localId && !connectedPeers.includes(holderId)) {
+            console.log(`[EditorAPI] Cleaning up orphaned lock for node ${nodeId} held by offline peer ${holderId}`);
+            this.onPeerLeave(holderId);
+          }
+        });
+      }
+    }, 5000);
   }
 };

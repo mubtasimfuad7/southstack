@@ -30,6 +30,7 @@ interface UIBuilderState {
   hostPeerId: string | null;
   hasEditAccess: boolean;
   pendingEditRequests: string[];
+  pendingJoinRequests: string[];
   allowedPeers: string[];
   uploadedAssets: Record<string, UIUploadedAsset>;
   pendingAssetRequests: UIAssetAccessRequest[];
@@ -60,6 +61,8 @@ interface UIBuilderState {
   setEditAccess: (access: boolean) => void;
   addEditRequest: (peerId: string) => void;
   resolveEditRequest: (peerId: string, approved: boolean) => void;
+  addJoinRequest: (peerId: string) => void;
+  resolveJoinRequest: (peerId: string, approved: boolean) => void;
   joinSession: (hostPeerId: string | null, asHost?: boolean) => void;
   addUploadedAsset: (asset: UIUploadedAsset) => void;
   addPendingAssetRequest: (request: UIAssetAccessRequest) => void;
@@ -67,6 +70,8 @@ interface UIBuilderState {
   markAssetRequested: (assetId: string) => void;
   markAssetDenied: (assetId: string) => void;
   loadDesignBundle: (document: DesignDocument, uploadedAssets?: Record<string, UIUploadedAsset>) => void;
+  updatePeerState: (peerId: string, patch: any) => void;
+  removePeerState: (peerId: string) => void;
   
   // Helpers
   getAbsoluteTransform: (id: string) => { x: number; y: number; rotation: number };
@@ -248,6 +253,7 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   hostPeerId: null,
   hasEditAccess: true,
   pendingEditRequests: [],
+  pendingJoinRequests: [],
   allowedPeers: [],
   uploadedAssets: {},
   pendingAssetRequests: [],
@@ -292,12 +298,22 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
       ? [...state.allowedPeers, peerId]
       : state.allowedPeers
   })),
+  addJoinRequest: (peerId) => set((state) => ({
+    pendingJoinRequests: state.pendingJoinRequests.includes(peerId) ? state.pendingJoinRequests : [...state.pendingJoinRequests, peerId]
+  })),
+  resolveJoinRequest: (peerId, approved) => set((state) => ({
+    pendingJoinRequests: state.pendingJoinRequests.filter(id => id !== peerId),
+    allowedPeers: approved && !state.allowedPeers.includes(peerId)
+      ? [...state.allowedPeers, peerId]
+      : state.allowedPeers
+  })),
   joinSession: (hostPeerId, asHost = false) => set((state) => ({
     hostPeerId: asHost ? null : hostPeerId,
     hasEditAccess: asHost || hostPeerId === null,
     selectedNodeIds: [],
     nodeLocks: {},
     pendingEditRequests: asHost ? state.pendingEditRequests : [],
+    pendingJoinRequests: asHost ? state.pendingJoinRequests : [],
     pendingAssetRequests: asHost ? state.pendingAssetRequests : [],
     requestedAssetIds: {},
   })),
@@ -319,6 +335,17 @@ export const useUIBuilderStore = create<UIBuilderState>((set, get) => ({
   markAssetDenied: (assetId) => set((state) => ({
     requestedAssetIds: { ...state.requestedAssetIds, [assetId]: 'denied' }
   })),
+  updatePeerState: (peerId, patch) => set((state) => ({
+    peerStates: {
+      ...state.peerStates,
+      [peerId]: { ...(state.peerStates[peerId] || {}), ...patch }
+    }
+  })),
+  removePeerState: (peerId) => set((state) => {
+    const newPeerStates = { ...state.peerStates };
+    delete newPeerStates[peerId];
+    return { peerStates: newPeerStates };
+  }),
   loadDesignBundle: (document, uploadedAssets = {}) => {
     document.layouts.forEach(l => l.pages.forEach(p => p.nodes.forEach(n => NodeFactory.computeStyles(n))));
     const firstLayout = document.layouts[0];
