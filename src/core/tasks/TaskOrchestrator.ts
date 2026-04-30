@@ -119,16 +119,34 @@ export class TaskOrchestrator {
   }
 
   cancel(): void {
+    console.log(`[Orchestrator] Cancelling root task: ${this.rootTask.id}`)
     this._updateRootTask({ status: 'cancelled' })
-    this.subtasks.forEach((s) => {
-      if (s.status !== 'completed') {
-        this._updateSubtask(s.id, { status: 'cancelled' })
-        leaseManager.releaseLease(s.id)
-        fileLocks.releaseBySubtask(s.id)
+    
+    // Cancel all non-completed subtasks
+    for (const [id, s] of this.subtasks.entries()) {
+      if (s.status !== 'completed' && s.status !== 'failed') {
+        this._updateSubtask(id, { status: 'cancelled' })
+        
+        // If assigned to a remote peer, notify them
+        if (s.assignedPeerId && s.assignedPeerId !== this.localPeerId) {
+          const cancelMsg = createMessage<TaskCancelPayload>('task/cancel', this.localPeerId, {
+            subtaskId: id,
+            leaseId: s.leaseId ?? '',
+            reason: 'Root task cancelled by initiator'
+          }, s.assignedPeerId)
+          peerNetworkManager.sendToPeer(s.assignedPeerId, cancelMsg)
+        }
+        
+        leaseManager.releaseLease(id)
+        this.scheduler.cancelPending(id)
       }
-    })
+    }
+    
+    fileLocks.releaseBySubtask('*') // Release all locks held by this orchestrator context
     remoteToolBridge.stopHosting()
+    peerStateStore.setLocalState('idle')
     this._cleanup()
+    this._emit()
   }
 
   // ── Event subscriptions ────────────────────────────────

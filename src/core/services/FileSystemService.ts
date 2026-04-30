@@ -205,6 +205,13 @@ export class FileSystemService implements IFileSystemService {
         await fsStore.refreshSubtree(parentDir)
         console.log(`[FileSystemService] Refreshed subtree: ${parentDir}`)
       }
+
+      // RAG: re-index the updated file (fire-and-forget, non-blocking)
+      if (typeof content === 'string' && content.length > 0) {
+        import('@/core/services/RAGService').then(({ ragService }) => {
+          ragService.indexFile(path, content).catch(() => {/* silent */})
+        })
+      }
     } catch (err) {
       console.error(`[FileSystemService] writeFile FAILED for ${path}:`, err)
       throw err
@@ -223,6 +230,11 @@ export class FileSystemService implements IFileSystemService {
 
   async deleteFile(path: string): Promise<void> {
     await idbDelete(path)
+
+    // RAG: remove chunks for this file
+    import('@/core/services/RAGService').then(({ ragService }) => {
+      ragService.removeFile(path).catch(() => {/* silent */})
+    })
 
     const { runtimeService } = await import('@/core/services/RuntimeService')
     try {

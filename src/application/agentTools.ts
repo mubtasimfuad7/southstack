@@ -128,5 +128,36 @@ export function buildAgentTools(): AgentTool[] {
         return result
       },
     },
+    {
+      name: 'semantic_search_codebase',
+      description: 'Semantic search across the codebase using natural language. Use this when you don\'t know exact file names or variable names. Parameters: { "query": string, "top_k"?: number }',
+      async execute(args) {
+        const query = (args.query || args.q || args.text) as string
+        if (!query) throw new Error('Missing parameter: query')
+        const topK = Math.min(Number(args.top_k ?? args.topK ?? 5), 10)
+
+        const { ragService } = await import('@/core/services/RAGService')
+
+        if (ragService.status === 'idle') {
+          // Initialize in background and fall back to keyword search for now
+          ragService.initialize().catch(console.warn)
+          return { warning: 'RAG model is still loading. Try again in a moment or use search_files for exact keyword search.' }
+        }
+
+        if (ragService.status === 'loading_model' || ragService.status === 'indexing') {
+          return { warning: `RAG is ${ragService.status}. Please retry shortly.` }
+        }
+
+        const results = await ragService.search(query, topK)
+        return {
+          query,
+          results: results.map(r => ({
+            filePath: r.filePath,
+            score: parseFloat(r.score.toFixed(3)),
+            snippet: r.content.slice(0, 300),
+          })),
+        }
+      },
+    },
   ]
 }

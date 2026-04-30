@@ -207,6 +207,7 @@ export function AgentPanel() {
   const [activeTab, setActiveTab] = useState<'chat' | 'network'>('chat')
   const [isListening, setIsListening] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
+  const [ragStatus, setRagStatus] = useState<string>('idle')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [agentService, setAgentService] = useState<any>(null)
   const recognitionRef = useRef<any>(null)
@@ -214,6 +215,7 @@ export function AgentPanel() {
   const baseInputRef = useRef('')
   const stopRequestedRef = useRef(false)
   const pendingSendAfterStopRef = useRef<string | null>(null)
+  const activeOrchestratorRef = useRef<any>(null)
 
   const speechSupported =
     typeof window !== 'undefined' &&
@@ -244,6 +246,13 @@ export function AgentPanel() {
         useAgentStore.getState().setModelReady(true)
         peerStateStore.setLocalState('idle')
       } catch (err) { console.error('Model init failed:', err) }
+
+      // Initialize RAG in background after LLM is ready
+      try {
+        const { ragService } = await import('@/core/services/RAGService')
+        ragService.onStatusChange((s, detail) => setRagStatus(detail ?? s))
+        ragService.initialize().catch(console.warn)
+      } catch (err) { console.warn('RAG init failed:', err) }
     }
     bootstrap()
   }, [])
@@ -287,10 +296,14 @@ export function AgentPanel() {
       }
 
       const orchestrator = new TaskOrchestrator(rt, localModelProvider)
+      activeOrchestratorRef.current = orchestrator
       orchestrator.onChange((updatedRt, updatedSt) => {
         pStore.getState().setRootTask(updatedRt)
         pStore.getState().setSubtasks(updatedSt)
-        if (['completed', 'failed', 'cancelled'].includes(updatedRt.status)) setStatus('idle')
+        if (['completed', 'failed', 'cancelled'].includes(updatedRt.status)) {
+          setStatus('idle')
+          activeOrchestratorRef.current = null
+        }
         else if (updatedRt.status === 'planning') setStatus('planning')
         else setStatus('executing')
       })
@@ -301,6 +314,19 @@ export function AgentPanel() {
       await orchestrator.start()
     } else {
       await agentService.start(prompt)
+    }
+  }
+
+  function handleCancel() {
+    if (activeOrchestratorRef.current) {
+      activeOrchestratorRef.current.cancel()
+      activeOrchestratorRef.current = null
+      setStatus('idle')
+      addMessage('assistant', 'Task execution cancelled by user.')
+    } else if (status !== 'idle') {
+      agentService?.stop()
+      setStatus('idle')
+      addMessage('assistant', 'Local agent execution stopped.')
     }
   }
 
@@ -438,7 +464,29 @@ export function AgentPanel() {
               <div className={`w-1.5 h-1.5 rounded-full ${modelReady ? 'bg-success animate-pulse-slow' : 'bg-warning animate-pulse'}`} />
               <span className="text-[10px] font-bold text-text-dim uppercase tracking-widest">Model</span>
             </div>
-            <StatusBadge status={status} />
+            <div className="flex items-center gap-2">
+              {status !== 'idle' && (
+                <button
+                  onClick={handleCancel}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-error/10 text-error border border-error/20 hover:bg-error hover:text-white transition-all text-[9px] font-bold uppercase tracking-wider"
+                >
+                  <X size={10} /> Stop Task
+                </button>
+              )}
+              {ragStatus && ragStatus !== 'idle' && (
+                <div className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full border font-mono ${
+                  ragStatus.includes('ready') || ragStatus.includes('Indexed')
+                    ? 'text-success border-success/30 bg-success/10'
+                    : ragStatus.includes('error')
+                    ? 'text-error border-error/30 bg-error/10'
+                    : 'text-accent-400 border-accent-400/30 bg-accent-400/10'
+                }`}>
+                  <span className={`w-1 h-1 rounded-full ${ragStatus.includes('ready') || ragStatus.includes('Indexed') ? 'bg-success' : 'bg-accent-400 animate-pulse'}`} />
+                  RAG: {ragStatus.slice(0, 24)}
+                </div>
+              )}
+              <StatusBadge status={status} />
+            </div>
           </div>
 
           {!modelReady && (

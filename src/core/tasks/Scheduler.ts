@@ -2,6 +2,7 @@
 // SCHEDULER: Worker selection + dependency-gated dispatch
 // tick() is called on every subtask/peer state change.
 // Only dispatches subtasks whose ALL dependencies are 'completed'.
+// Multi-peer cascade: tries ranked peers in order until one accepts.
 // ============================================================
 
 import { getRankedWorkers } from '@/core/peers/peerSelectors'
@@ -17,18 +18,24 @@ const OFFER_TIMEOUT_MS = 8_000
 type SubtaskMap = Map<string, Subtask>
 type OfferResultCallback = (subtaskId: string, accepted: boolean, byPeerId: string | null) => void
 
+interface PendingOffer {
+  timeout: ReturnType<typeof setTimeout>
+  remainingWorkers: string[]   // peer IDs not yet tried
+  onOfferResult: OfferResultCallback
+  subtask: Subtask
+}
+
 export class Scheduler {
   private localPeerId: string
-  private pendingOffers = new Map<string, ReturnType<typeof setTimeout>>()  // subtaskId → timeout
-  private retryTab: Map<string, ReturnType<typeof setInterval>> = new Map()  // subtaskId → retry interval
-  private readonly RETRY_INTERVAL_MS = 5_000  // Re-check every 5 seconds if no workers available
+  private pendingOffers = new Map<string, PendingOffer>()
+  private retryTab: Map<string, ReturnType<typeof setInterval>> = new Map()
+  private readonly RETRY_INTERVAL_MS = 5_000
 
   constructor(localPeerId: string) {
     this.localPeerId = localPeerId
   }
 
   // ── Main dispatch tick ─────────────────────────────────
-  // Called whenever subtask state or peer state changes
 
   tick(
     rootTask: RootTask,
@@ -36,47 +43,46 @@ export class Scheduler {
     onOfferResult: OfferResultCallback,
   ): void {
     const dispatchable = getDispatchableSubtasks(subtasks)
-    console.debug(`[Scheduler] Tick: ${dispatchable.length} dispatchable subtasks`);
+    console.debug(`[Scheduler] Tick: ${dispatchable.length} dispatchable subtasks`)
 
     for (const subtask of dispatchable) {
-      if (this.pendingOffers.has(subtask.id)) continue  // already offered
-
-      this._dispatchSubtask(subtask, subtasks, onOfferResult)
+      if (this.pendingOffers.has(subtask.id)) continue  // already in-flight
+      this._startOfferCascade(subtask, onOfferResult)
     }
   }
 
-  // ── Dispatch one subtask ───────────────────────────────
+  // ── Cascade: try peers one at a time in ranked order ──
 
-  private _dispatchSubtask(
-    subtask: Subtask,
-    _subtasks: SubtaskMap,
-    onOfferResult: OfferResultCallback,
-  ): void {
+  private _startOfferCascade(subtask: Subtask, onOfferResult: OfferResultCallback): void {
     const workers = getRankedWorkers()
-    console.debug(`[Scheduler] Dispatching "${subtask.title}": ${workers.length} eligible workers found`);
+    console.debug(`[Scheduler] Starting cascade for "${subtask.title}": ${workers.length} eligible workers`)
 
     if (workers.length === 0) {
-      // No remote workers available — set up retry polling
-      console.debug(`[Scheduler] No workers for "${subtask.title}", enabling retry polling`);
-      if (!this.retryTab.has(subtask.id)) {
-        const interval = setInterval(() => {
-          const availableNow = getRankedWorkers()
-          if (availableNow.length > 0) {
-            console.debug(`[Scheduler] Workers available for "${subtask.title}", stopping retry polling`);
-            clearInterval(interval)
-            this.retryTab.delete(subtask.id)
-          }
-        }, this.RETRY_INTERVAL_MS)
-        this.retryTab.set(subtask.id, interval)
-      }
-      
-      // Assign to self for now (will retry if workers appear later)
+      // No remote workers — poll and immediately self-assign
+      this._startRetryPolling(subtask)
       onOfferResult(subtask.id, true, this.localPeerId)
       return
     }
 
-    const worker = workers[0]
-    const lease = leaseManager.createLease(subtask.id, worker.peerId)
+    const remainingWorkers = workers.map(w => w.peerId)
+    this._offerToNext(subtask, remainingWorkers, onOfferResult)
+  }
+
+  private _offerToNext(
+    subtask: Subtask,
+    remainingWorkers: string[],
+    onOfferResult: OfferResultCallback,
+  ): void {
+    // All peers have rejected — fall back to self
+    if (remainingWorkers.length === 0) {
+      console.debug(`[Scheduler] All peers rejected "${subtask.title}", self-assigning`)
+      this.pendingOffers.delete(subtask.id)
+      onOfferResult(subtask.id, true, this.localPeerId)
+      return
+    }
+
+    const [targetPeerId, ...rest] = remainingWorkers
+    const lease = leaseManager.createLease(subtask.id, targetPeerId)
 
     const offer = createMessage<TaskOfferPayload>(
       'task/offer',
@@ -96,26 +102,33 @@ export class Scheduler {
         leaseExpiresAt: lease.expiresAt,
         maxRetries: subtask.maxRetries,
       },
-      worker.peerId,
+      targetPeerId,
     )
 
-    const sent = peerNetworkManager.sendToPeer(worker.peerId, offer)
+    const sent = peerNetworkManager.sendToPeer(targetPeerId, offer)
     if (!sent) {
-      // Peer channel not open — assign to self
+      // Channel not open — skip to next peer immediately
       leaseManager.releaseLease(subtask.id)
-      onOfferResult(subtask.id, true, this.localPeerId)
+      this._offerToNext(subtask, rest, onOfferResult)
       return
     }
 
-    // Mark as pending + set timeout fallback
+    console.debug(`[Scheduler] Offered "${subtask.title}" to peer ${targetPeerId}`)
+
+    // Timeout: if peer doesn't respond, try next one
     const timeout = setTimeout(() => {
+      console.debug(`[Scheduler] Offer to ${targetPeerId} timed out for "${subtask.title}", trying next peer`)
       this.pendingOffers.delete(subtask.id)
       leaseManager.releaseLease(subtask.id)
-      // Try self as fallback
-      onOfferResult(subtask.id, true, this.localPeerId)
+      this._offerToNext(subtask, rest, onOfferResult)
     }, OFFER_TIMEOUT_MS)
 
-    this.pendingOffers.set(subtask.id, timeout)
+    this.pendingOffers.set(subtask.id, {
+      timeout,
+      remainingWorkers: rest,
+      onOfferResult,
+      subtask,
+    })
   }
 
   // ── Called when task/accept or task/reject arrives ─────
@@ -126,35 +139,34 @@ export class Scheduler {
     fromPeerId: string,
     onOfferResult: OfferResultCallback,
   ): void {
-    const timeout = this.pendingOffers.get(subtaskId)
-    if (timeout) {
-      clearTimeout(timeout)
-      this.pendingOffers.delete(subtaskId)
-    }
+    const pending = this.pendingOffers.get(subtaskId)
+    if (!pending) return
 
-    // Clear retry polling if accepted by remote
-    if (accepted && fromPeerId !== this.localPeerId) {
+    clearTimeout(pending.timeout)
+    this.pendingOffers.delete(subtaskId)
+
+    if (accepted) {
+      // Clear retry polling if peer accepted
       const retry = this.retryTab.get(subtaskId)
       if (retry) {
         clearInterval(retry)
         this.retryTab.delete(subtaskId)
       }
-    }
-
-    if (!accepted) {
+      onOfferResult(subtaskId, true, fromPeerId)
+    } else {
+      // Peer rejected — cascade to next one in the remaining list
+      console.debug(`[Scheduler] Peer ${fromPeerId} rejected "${subtaskId}", cascading to next`)
       leaseManager.releaseLease(subtaskId)
+      this._offerToNext(pending.subtask, pending.remainingWorkers, pending.onOfferResult)
     }
-
-    onOfferResult(subtaskId, accepted, fromPeerId)
   }
 
   cancelPending(subtaskId: string): void {
-    const timeout = this.pendingOffers.get(subtaskId)
-    if (timeout) {
-      clearTimeout(timeout)
+    const pending = this.pendingOffers.get(subtaskId)
+    if (pending) {
+      clearTimeout(pending.timeout)
       this.pendingOffers.delete(subtaskId)
     }
-    
     const retry = this.retryTab.get(subtaskId)
     if (retry) {
       clearInterval(retry)
@@ -162,7 +174,22 @@ export class Scheduler {
     }
   }
 
+  private _startRetryPolling(subtask: Subtask): void {
+    if (this.retryTab.has(subtask.id)) return
+    const interval = setInterval(() => {
+      const available = getRankedWorkers()
+      if (available.length > 0) {
+        console.debug(`[Scheduler] Workers now available for "${subtask.title}", stopping retry polling`)
+        clearInterval(interval)
+        this.retryTab.delete(subtask.id)
+      }
+    }, this.RETRY_INTERVAL_MS)
+    this.retryTab.set(subtask.id, interval)
+  }
+
   destroy(): void {
+    this.pendingOffers.forEach(p => clearTimeout(p.timeout))
+    this.pendingOffers.clear()
     this.retryTab.forEach(interval => clearInterval(interval))
     this.retryTab.clear()
   }

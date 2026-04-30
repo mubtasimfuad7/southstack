@@ -20,8 +20,9 @@ import type {
 } from '@/core/network/protocol'
 import type { ChatMessage } from '@/core/interfaces/IModelProvider'
 
-const MAX_ITERATIONS = 15
+const MAX_ITERATIONS = 20
 const PROGRESS_INTERVAL_MS = 6_000
+const MAX_HISTORY_MESSAGES = 16  // keep system + last 16 messages to stay within context window
 
 export interface WorkerResult {
   success: boolean
@@ -48,6 +49,7 @@ export class WorkerAgentRuntime {
     this._startProgressTimer(subtask)
 
     const history: ChatMessage[] = buildWorkerMessages(subtask, this.initiatorId)
+    let historyMutable: ChatMessage[] = [...history]
     const filesWritten: string[] = []
 
     try {
@@ -55,18 +57,19 @@ export class WorkerAgentRuntime {
         if (this.stopped) break
 
         console.log(`[WorkerRuntime] Iteration ${i + 1}/${MAX_ITERATIONS}, subtask=${subtask.id}`)
-        const raw = await this.model.generate(history, { maxTokens: 2000, temperature: 0.2 })
+        const raw = await this.model.generate(historyMutable, { maxTokens: 2000, temperature: 0.2 })
         console.log(`[WorkerRuntime] Model response (first 500 chars):`, raw.slice(0, 500))
-        history.push({ role: 'assistant', content: raw })
+        historyMutable.push({ role: 'assistant', content: raw })
 
         const parsed = this._parseResponse(raw)
         if (!parsed) {
           console.warn(`[WorkerRuntime] Failed to parse model response. Raw: ${raw.slice(0, 300)}`)
-          history.push({ role: 'user', content: 'Invalid response format. Please respond with valid JSON.' })
+          historyMutable.push({ role: 'user', content: 'Invalid response format. Respond with valid JSON containing a "thought" field and either "action", "status": "continue", or "status": "done".' })
+          historyMutable = this._pruneHistory(historyMutable)
           continue
         }
 
-        console.log(`[WorkerRuntime] Parsed response:`, parsed)
+        console.log(`[WorkerRuntime] Parsed — thought: ${parsed.thought?.slice(0, 100)}, status: ${parsed.status}, action: ${parsed.action?.tool}`)
 
         // Send worker thinking update to orchestrator (for remote peers and local UI)
         this._sendThinkingUpdate(subtask, i + 1, raw.slice(0, 500), parsed.action)
@@ -87,12 +90,13 @@ export class WorkerAgentRuntime {
               console.log(`[WorkerRuntime] writeFile completed for: ${path}`)
               if (path && !filesWritten.includes(path)) filesWritten.push(path)
             }
-            history.push({ role: 'user', content: `Tool result: ${JSON.stringify(toolResult).slice(0, 1000)}` })
+            historyMutable.push({ role: 'user', content: `Tool result for ${parsed.action.tool}: ${JSON.stringify(toolResult).slice(0, 1000)}` })
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err)
             console.error(`[WorkerRuntime] Tool error for ${parsed.action.tool}:`, errMsg)
-            history.push({ role: 'user', content: `Tool error: ${errMsg}` })
+            historyMutable.push({ role: 'user', content: `Tool error: ${errMsg}. Try a different approach.` })
           }
+          historyMutable = this._pruneHistory(historyMutable)
         }
 
         // Now check terminal states AFTER processing any actions
@@ -102,10 +106,11 @@ export class WorkerAgentRuntime {
           if (subtask.targetPaths && subtask.targetPaths.length > 0 && filesWritten.length === 0) {
             // Task requires file creation but no tools were actually called
             console.warn(`[WorkerRuntime] Model claimed done but no write tool calls made. Rejecting.`)
-            history.push({ 
+            historyMutable.push({ 
               role: 'user', 
               content: `Your task requires writing files to ${subtask.targetPaths.join(', ')} but no writeFile tools were called. You must actually use the writeFile tool to create the required files before marking the task as done.` 
             })
+            historyMutable = this._pruneHistory(historyMutable)
             continue
           }
 
@@ -289,6 +294,7 @@ export class WorkerAgentRuntime {
   // ── Response parsing ───────────────────────────────────
 
   private _parseResponse(raw: string): {
+    thought?: string
     status: string
     action?: { tool: string; input?: Record<string, unknown> }
     summary?: string
@@ -315,5 +321,16 @@ export class WorkerAgentRuntime {
     } catch {
       return null
     }
+  }
+
+  private _pruneHistory(history: ChatMessage[]): ChatMessage[] {
+    if (history.length <= MAX_HISTORY_MESSAGES) return history
+    
+    // Always keep the system message (first one)
+    const systemMsg = history[0]
+    // Take the last N messages
+    const recent = history.slice(-MAX_HISTORY_MESSAGES)
+    
+    return [systemMsg, ...recent]
   }
 }
