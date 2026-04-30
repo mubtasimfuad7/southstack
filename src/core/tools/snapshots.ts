@@ -9,7 +9,8 @@ class Snapshots {
     if (this.store.has(path)) return  // already snapshotted
     try {
       const { fileSystemService } = await import('@/core/services/FileSystemService')
-      const content = await fileSystemService.readFile(path)
+      const rawContent = await fileSystemService.readFile(path)
+      const content = typeof rawContent === 'string' ? rawContent : new TextDecoder().decode(rawContent)
       this.store.set(path, content)
     } catch {
       // File doesn't exist yet — snapshot as empty

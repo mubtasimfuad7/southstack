@@ -16,12 +16,14 @@ interface FSState {
   projectRoot: FileNode | null
   expandedPaths: Set<string>
   selectedPath: string | null
+  explorerOpen: boolean
   isLoading: boolean
   isSyncing: boolean
   hasLocalAccess: boolean
   setProjectRoot: (root: FileNode | null) => void
   toggleExpanded: (path: string) => void
   setSelectedPath: (path: string | null) => void
+  setExplorerOpen: (v: boolean) => void
   setLoading: (v: boolean) => void
   setSyncing: (v: boolean) => void
   setHasLocalAccess: (v: boolean) => void
@@ -33,6 +35,7 @@ export const useFSStore = create<FSState>((set, get) => ({
   projectRoot: null,
   expandedPaths: new Set<string>(),
   selectedPath: null,
+  explorerOpen: true,
   isLoading: false,
   isSyncing: false,
   hasLocalAccess: false,
@@ -44,6 +47,7 @@ export const useFSStore = create<FSState>((set, get) => ({
     set({ expandedPaths: expanded })
   },
   setSelectedPath: (path) => set({ selectedPath: path }),
+  setExplorerOpen: (v) => set({ explorerOpen: v }),
   setLoading: (v) => set({ isLoading: v }),
   setSyncing: (v) => set({ isSyncing: v }),
   setHasLocalAccess: (v) => set({ hasLocalAccess: v }),

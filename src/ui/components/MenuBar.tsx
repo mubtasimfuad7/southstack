@@ -11,12 +11,14 @@ interface MenuBarProps {
   onToggleAgent: () => void
   onToggleTerminal: () => void
   onToggleUIBuilder: () => void
+  onToggleExplorer: () => void
   agentPanelOpen: boolean
   terminalOpen: boolean
   uiBuilderOpen: boolean
+  explorerOpen: boolean
 }
 
-export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, agentPanelOpen, terminalOpen, uiBuilderOpen }: MenuBarProps) {
+export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, onToggleExplorer, agentPanelOpen, terminalOpen, uiBuilderOpen, explorerOpen }: MenuBarProps) {
   const { setProjectRoot, setLoading, setSyncing, setHasLocalAccess, isSyncing, isLoading } = useFSStore()
 
   async function handleOpenProject() {
@@ -95,6 +97,16 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, ag
             </>
           )}
         </div>
+
+        <button
+          onClick={onToggleExplorer}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${explorerOpen ? 'text-primary-300 bg-primary-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
+            }`}
+          title="Toggle Explorer"
+        >
+          <FolderOpen size={13} />
+          Explorer
+        </button>
 
         <button
           onClick={onToggleUIBuilder}

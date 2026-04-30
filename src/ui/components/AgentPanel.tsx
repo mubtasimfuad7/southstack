@@ -154,29 +154,34 @@ function SubtaskRow({ subtask }: { subtask: Subtask }) {
               {subtask.statusText && <span className="truncate">• {subtask.statusText}</span>}
             </div>
           )}
-          {subtask.workerThinking && (
+          {(subtask.workerThinkingHistory?.length ? subtask.workerThinkingHistory.length > 0 : subtask.workerThinking) && (
             <div className="mt-2">
               <button
                 onClick={() => setShowWorkerThinking(!showWorkerThinking)}
                 className="text-[9px] text-primary-300 hover:text-primary-400 font-mono hover:underline"
               >
-                {showWorkerThinking ? '▼' : '▶'} Model Thinking (Iter {subtask.workerThinking.iteration})
+                {showWorkerThinking ? '▼' : '▶'} Model Thinking History ({subtask.workerThinkingHistory?.length || 1} iterations)
               </button>
               {showWorkerThinking && (
-                <div className="mt-1 space-y-1 text-[8px]">
-                  {subtask.workerThinking.modelResponse && (
-                    <div className="bg-surface-300/50 p-1.5 rounded font-mono text-text-secondary break-words max-h-[100px] overflow-y-auto">
-                      {subtask.workerThinking.modelResponse}
+                <div className="mt-1 space-y-2 text-[8px]">
+                  {(subtask.workerThinkingHistory || [subtask.workerThinking]).map((think, idx) => think && (
+                    <div key={think.iteration} className="border-l border-primary-500/20 pl-2">
+                      <div className="text-primary-400 font-bold mb-1">Iteration {think.iteration}</div>
+                      {think.modelResponse && (
+                        <div className="bg-surface-300/50 p-1.5 rounded font-mono text-text-secondary break-words max-h-[100px] overflow-y-auto mb-1">
+                          {think.modelResponse}
+                        </div>
+                      )}
+                      {think.toolCall && (
+                        <div className="bg-warning/10 border border-warning/30 p-1 rounded">
+                          <div className="text-warning font-bold">Tool: {think.toolCall.tool}</div>
+                          <div className="text-text-dim font-mono mt-0.5">
+                            {JSON.stringify(think.toolCall.input).slice(0, 150)}...
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {subtask.workerThinking.toolCall && (
-                    <div className="bg-warning/10 border border-warning/30 p-1 rounded">
-                      <div className="text-warning font-bold">Tool: {subtask.workerThinking.toolCall.tool}</div>
-                      <div className="text-text-dim font-mono mt-0.5">
-                        {JSON.stringify(subtask.workerThinking.toolCall.input).slice(0, 150)}...
-                      </div>
-                    </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
@@ -199,7 +204,7 @@ export function AgentPanel() {
 
   const [input, setInput] = useState('')
   const [showPlan, setShowPlan] = useState(true)
-  const [showNetwork, setShowNetwork] = useState(true)
+  const [activeTab, setActiveTab] = useState<'chat' | 'network'>('chat')
   const [isListening, setIsListening] = useState(false)
   const [speechError, setSpeechError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -404,9 +409,19 @@ export function AgentPanel() {
     <div className="flex flex-col h-full bg-surface-100 w-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 border-b border-border bg-surface-200/50 flex-shrink-0 h-14">
-        <div className="flex items-center gap-2">
-          <Bot size={16} className="text-primary-400" />
-          <span className="text-[10px] font-bold uppercase tracking-widest text-text-primary">Distributed AI Agent</span>
+        <div className="flex items-center gap-4 h-full">
+          <button 
+            onClick={() => setActiveTab('chat')} 
+            className={`h-full flex items-center gap-2 border-b-2 font-bold uppercase tracking-widest text-[10px] transition-colors ${activeTab === 'chat' ? 'border-primary-400 text-primary-400' : 'border-transparent text-text-dim hover:text-text-primary'}`}
+          >
+            <Bot size={16} /> Local Chat
+          </button>
+          <button 
+            onClick={() => setActiveTab('network')} 
+            className={`h-full flex items-center gap-2 border-b-2 font-bold uppercase tracking-widest text-[10px] transition-colors ${activeTab === 'network' ? 'border-secondary-400 text-secondary-400' : 'border-transparent text-text-dim hover:text-text-primary'}`}
+          >
+            <Network size={16} /> Distributed Activity
+          </button>
         </div>
         <button onClick={() => setAgentPanelOpen(false)} className="px-2 text-text-dim hover:text-error transition-colors">
           <X size={16} />
@@ -414,6 +429,8 @@ export function AgentPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar flex flex-col">
+        {activeTab === 'chat' && (
+          <>
         {/* Top: Model Status & Chat */}
         <div className="flex flex-col flex-shrink-0">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-surface-100">
@@ -465,25 +482,12 @@ export function AgentPanel() {
           )}
           <div ref={messagesEndRef} />
         </div>
+        </>
+        )}
 
-        {/* Distributed Activity Section (Bottom Stacking) */}
-        {(rootTask || remoteSubtask || peers.size > 0) && (
-          <div className="mt-auto border-t border-border bg-surface-200/50">
-            <button
-              onClick={() => setShowNetwork(!showNetwork)}
-              className="flex items-center justify-between w-full px-4 py-3 bg-surface-200 border-b border-border hover:bg-surface-300/50 transition-colors"
-            >
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-text-primary">
-                <Network size={14} className="text-secondary-400" /> Distributed Activity
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[9px] text-text-dim bg-surface-100 px-1.5 py-0.5 rounded border border-border">{peers.size} Peers</span>
-                {showNetwork ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-              </div>
-            </button>
-
-            {showNetwork && (
-              <div className="p-3 space-y-4 bg-surface-100 animate-fade-in divide-y divide-border/30 max-h-[350px] overflow-y-auto custom-scrollbar">
+        {/* Distributed Activity Section */}
+        {activeTab === 'network' && (
+          <div className="p-4 space-y-6 bg-surface-100 animate-fade-in divide-y divide-border/30 overflow-y-auto custom-scrollbar flex-1">
                 {/* Peer Mesh Summary */}
                 <div className="pb-4">
                   <div className="text-[9px] uppercase font-black text-text-dim mb-2 flex items-center justify-between">
@@ -528,14 +532,12 @@ export function AgentPanel() {
                     </div>
                   </div>
                 )}
-              </div>
-            )}
           </div>
         )}
       </div>
 
       {/* Footer Input */}
-      <div className="px-4 py-4 border-t border-border bg-surface-100 flex-shrink-0 shadow-lg">
+      <div className="px-4 py-4 border-t border-border bg-surface-100 flex-shrink-0 shadow-lg" style={{ display: activeTab === 'chat' ? 'block' : 'none' }}>
         {speechError && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-[10px] text-error">
             <AlertCircle size={12} />

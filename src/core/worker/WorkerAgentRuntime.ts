@@ -68,10 +68,8 @@ export class WorkerAgentRuntime {
 
         console.log(`[WorkerRuntime] Parsed response:`, parsed)
 
-        // Send worker thinking update to orchestrator (for remote peers)
-        if (!this.isLocal && subtask.leaseId) {
-          this._sendThinkingUpdate(subtask, i + 1, raw.slice(0, 500), parsed.action)
-        }
+        // Send worker thinking update to orchestrator (for remote peers and local UI)
+        this._sendThinkingUpdate(subtask, i + 1, raw.slice(0, 500), parsed.action)
 
         // CRITICAL: Process any action first, even if status is 'done'
         // This handles cases where model includes both action and done status
@@ -195,14 +193,15 @@ export class WorkerAgentRuntime {
       iteration++
       const progress = Math.min(90, iteration * 10)
 
+      const progressMsg = createMessage<TaskProgressPayload>('task/progress', this.workerId, {
+        subtaskId: subtask.id,
+        leaseId: subtask.leaseId ?? '',
+        progress,
+        statusText: `Working... (${iteration * 6}s)`,
+      }, this.initiatorId)
+
       if (!this.isLocal) {
         // Send progress to coordinator
-        const progressMsg = createMessage<TaskProgressPayload>('task/progress', this.workerId, {
-          subtaskId: subtask.id,
-          leaseId: subtask.leaseId ?? '',
-          progress,
-          statusText: `Working... (${iteration * 6}s)`,
-        }, this.initiatorId)
         peerNetworkManager.sendToPeer(this.initiatorId, progressMsg)
 
         // Renew lease
@@ -214,6 +213,9 @@ export class WorkerAgentRuntime {
           }, this.initiatorId)
           peerNetworkManager.sendToPeer(this.initiatorId, renewMsg)
         }
+      } else {
+        // Local execution, just dispatch directly to messageBus
+        messageBus.receive(progressMsg)
       }
     }, PROGRESS_INTERVAL_MS)
   }
@@ -231,7 +233,6 @@ export class WorkerAgentRuntime {
     modelResponse: string,
     action?: { tool: string; input?: Record<string, unknown> }
   ): void {
-    if (this.isLocal) return
     const progressMsg = createMessage<TaskProgressPayload>(
       'task/progress',
       this.workerId,
@@ -252,7 +253,11 @@ export class WorkerAgentRuntime {
       },
       this.initiatorId
     )
-    peerNetworkManager.sendToPeer(this.initiatorId, progressMsg)
+    if (this.isLocal) {
+      messageBus.receive(progressMsg)
+    } else {
+      peerNetworkManager.sendToPeer(this.initiatorId, progressMsg)
+    }
   }
 
   // ── Message senders (remote only) ─────────────────────
@@ -291,8 +296,21 @@ export class WorkerAgentRuntime {
     filesWritten?: string[]
   } | null {
     try {
-      const match = raw.match(/```json\s*([\s\S]*?)\s*```/) || raw.match(/(\{[\s\S]*\})/)
-      const jsonStr = match ? match[1] : raw.trim()
+      let jsonStr = ''
+      const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/) || 
+                        raw.match(/```\s*([\s\S]*?)\s*```/)
+      
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1]
+      } else {
+        const firstBrace = raw.indexOf('{')
+        const lastBrace = raw.lastIndexOf('}')
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          jsonStr = raw.substring(firstBrace, lastBrace + 1)
+        } else {
+          jsonStr = raw.trim()
+        }
+      }
       return JSON.parse(jsonStr)
     } catch {
       return null

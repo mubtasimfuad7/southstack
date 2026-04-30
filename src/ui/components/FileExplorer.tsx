@@ -25,12 +25,38 @@ function getIcon(name: string): string {
   return FILE_ICON_MAP[ext] ?? '📄'
 }
 
+function DraftInput({ depth, onSubmit, onCancel }: { depth: number, onSubmit: (v: string) => void, onCancel: () => void }) {
+  const [val, setVal] = useState('')
+  return (
+    <div className="flex items-center gap-1 py-0.5 px-2 animate-fade-in" style={{ paddingLeft: `${depth * 12 + 8 + 12}px` }}>
+      <span className="text-xs flex-shrink-0">📄</span>
+      <input
+        autoFocus
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => val.trim() ? onSubmit(val.trim()) : onCancel()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+             if (val.trim()) onSubmit(val.trim())
+             else onCancel()
+          }
+          if (e.key === 'Escape') onCancel()
+        }}
+        className="flex-1 bg-surface-300 border border-primary-400/50 rounded px-1 text-xs text-text-primary outline-none"
+      />
+    </div>
+  )
+}
+
 interface FileTreeNodeProps {
   node: FileNode
   depth: number
+  draftParent: string | null
+  onDraftSubmit: (parent: string, name: string) => void
+  onDraftCancel: () => void
 }
 
-function FileTreeNode({ node, depth }: FileTreeNodeProps) {
+function FileTreeNode({ node, depth, draftParent, onDraftSubmit, onDraftCancel }: FileTreeNodeProps) {
   const { expandedPaths, selectedPath, toggleExpanded, setSelectedPath, setProjectRoot } = useFSStore()
   const isExpanded = expandedPaths.has(node.path)
   const isSelected = selectedPath === node.path
@@ -44,7 +70,8 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
       return
     }
     try {
-      const content = await fileSystemService.readFile(node.path)
+      const rawContent = await fileSystemService.readFile(node.path)
+      const content = typeof rawContent === 'string' ? rawContent : new TextDecoder().decode(rawContent)
       const tab = await editorService.openTab(node.path, content)
       useEditorStore.getState().setActiveTabId(tab.id)
       useEditorStore.getState().setTabs(editorService.getAllTabs())
@@ -128,10 +155,13 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
         </div>
       </div>
 
-      {node.type === 'directory' && isExpanded && node.children && (
+      {node.type === 'directory' && isExpanded && (
         <div>
-          {node.children.map((child) => (
-            <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+          {draftParent === node.path && (
+            <DraftInput depth={depth} onSubmit={(v) => onDraftSubmit(node.path, v)} onCancel={onDraftCancel} />
+          )}
+          {node.children?.map((child) => (
+            <FileTreeNode key={child.path} node={child} depth={depth + 1} draftParent={draftParent} onDraftSubmit={onDraftSubmit} onDraftCancel={onDraftCancel} />
           ))}
         </div>
       )}
@@ -140,12 +170,37 @@ function FileTreeNode({ node, depth }: FileTreeNodeProps) {
 }
 
 export function FileExplorer() {
-  const { projectRoot, setProjectRoot, setLoading, setHasLocalAccess } = useFSStore()
+  const { projectRoot, setProjectRoot, setLoading, setHasLocalAccess, selectedPath, toggleExpanded } = useFSStore()
+  const [draftParent, setDraftParent] = useState<string | null>(null)
 
-  async function handleNewFile() {
-    const name = prompt('New file name:')
+  function handleNewFile() {
+    let parent = ''
+    if (selectedPath) {
+      const findNode = (n: FileNode, p: string): FileNode | null => {
+        if (n.path === p) return n
+        for (const c of n.children || []) {
+          const f = findNode(c, p)
+          if (f) return f
+        }
+        return null
+      }
+      const node = projectRoot ? findNode(projectRoot, selectedPath) : null
+      if (node?.type === 'directory') {
+        parent = node.path
+        // ensure parent is expanded
+        const expanded = new Set(useFSStore.getState().expandedPaths)
+        if (!expanded.has(parent)) toggleExpanded(parent)
+      } else if (node) {
+        parent = selectedPath.includes('/') ? selectedPath.substring(0, selectedPath.lastIndexOf('/')) : ''
+      }
+    }
+    setDraftParent(parent)
+  }
+
+  async function handleDraftSubmit(parentPath: string, name: string) {
+    setDraftParent(null)
     if (!name) return
-    const path = name.startsWith('/') ? name : name
+    const path = parentPath ? `${parentPath}/${name}` : name
     await fileSystemService.createFile(path, '')
     const tree = await fileSystemService.getTree()
     setProjectRoot(tree)
@@ -207,8 +262,11 @@ export function FileExplorer() {
       <div className="flex-1 overflow-y-auto py-1">
         {projectRoot ? (
           <div>
+            {draftParent === '' && (
+              <DraftInput depth={-1} onSubmit={(v) => handleDraftSubmit('', v)} onCancel={() => setDraftParent(null)} />
+            )}
             {projectRoot.children?.map((node) => (
-              <FileTreeNode key={node.path} node={node} depth={0} />
+              <FileTreeNode key={node.path} node={node} depth={0} draftParent={draftParent} onDraftSubmit={handleDraftSubmit} onDraftCancel={() => setDraftParent(null)} />
             ))}
           </div>
         ) : (

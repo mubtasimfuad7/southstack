@@ -100,6 +100,16 @@ export interface Subtask {
     tokensGenerated?: number
     timeElapsed?: number
   }
+  workerThinkingHistory?: Array<{
+    iteration: number
+    modelResponse?: string
+    toolCall?: {
+      tool: string
+      input: Record<string, unknown>
+    }
+    tokensGenerated?: number
+    timeElapsed?: number
+  }>
 
   createdAt: number
   updatedAt: number

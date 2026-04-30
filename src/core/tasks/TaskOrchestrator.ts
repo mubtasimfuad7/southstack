@@ -167,10 +167,22 @@ export class TaskOrchestrator {
       messageBus.on<TaskProgressPayload>('task/progress', (msg) => {
         const s = this.subtasks.get(msg.payload.subtaskId)
         if (!s || s.assignedPeerId !== msg.fromPeerId) return
+        
+        let newHistory = s.workerThinkingHistory ? [...s.workerThinkingHistory] : []
+        if (msg.payload.workerThinking) {
+           const existingIndex = newHistory.findIndex(h => h.iteration === msg.payload.workerThinking!.iteration)
+           if (existingIndex !== -1) {
+             newHistory[existingIndex] = msg.payload.workerThinking
+           } else {
+             newHistory.push(msg.payload.workerThinking)
+           }
+        }
+
         this._updateSubtask(msg.payload.subtaskId, {
           progress: msg.payload.progress,
           statusText: msg.payload.statusText,
           workerThinking: msg.payload.workerThinking,
+          workerThinkingHistory: newHistory
         })
         this._emit()
       }),
@@ -349,7 +361,60 @@ export class TaskOrchestrator {
         }
       }, 2_000)
     } else {
-      this._updateSubtask(subtaskId, { status: 'failed' })
+      const fixDepth = (s.title.match(/Fix Error/g) || []).length
+      if (fixDepth < 2) {
+        // OPTION B: Auto-healing. Spawn a new subtask to fix the error.
+        const fixSubtaskId = `st-fix-${Date.now()}`
+        const newSubtask: Subtask = {
+          id: fixSubtaskId,
+          rootTaskId: s.rootTaskId,
+          initiatorPeerId: s.initiatorPeerId,
+          title: `Fix Error in: ${s.title}`,
+          description: `The previous subtask "${s.title}" failed with the following error:
+${s.resultSummary || 'Unknown error'}
+
+Original Task Description:
+${s.description}
+
+Your task is to identify why it failed and fix the issue. Use the available tools to correct the files.`,
+          expectedOutput: `The issue preventing "${s.title}" from completing is resolved.`,
+          targetPaths: s.targetPaths,
+          allowedTools: s.allowedTools,
+          dependencies: s.dependencies, // inherit dependencies
+          lockedFiles: s.lockedFiles,
+          status: 'queued',
+          retryCount: 0,
+          maxRetries: 2,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+        
+        this.subtasks.set(fixSubtaskId, newSubtask)
+        
+        // Mark the originally failed subtask as cancelled so it doesn't block completion
+        this._updateSubtask(subtaskId, { 
+          status: 'cancelled', 
+          resultSummary: `Failed. Spawned recovery task: ${fixSubtaskId}` 
+        })
+        
+        // Update downstream dependencies to point to the new fix task
+        for (const [id, downstream] of this.subtasks.entries()) {
+          if (downstream.dependencies.includes(subtaskId)) {
+            const newDeps = downstream.dependencies.filter(d => d !== subtaskId)
+            newDeps.push(fixSubtaskId)
+            this._updateSubtask(id, { dependencies: newDeps })
+          }
+        }
+        
+        this._emit()
+        this._scheduleTick()
+      } else {
+        // Max fix depth reached. Really fail.
+        this._updateSubtask(subtaskId, { status: 'failed' })
+        this._emit()
+        this._scheduleTick()
+        this._checkCompletion()
+      }
     }
   }
 
@@ -359,7 +424,7 @@ export class TaskOrchestrator {
 
   private _checkCompletion(): void {
     const all = [...this.subtasks.values()]
-    const done = all.every((s) => s.status === 'completed' || s.status === 'cancelled')
+    const done = all.every((s) => s.status === 'completed' || s.status === 'cancelled' || s.status === 'failed')
     const anyFailed = all.some((s) => s.status === 'failed')
 
     if (done) {

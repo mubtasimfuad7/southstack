@@ -92,10 +92,12 @@ export function buildAgentTools(): AgentTool[] {
         const search = async (node: any) => {
           if (node.type === 'file') {
             const content = await fileSystemService.readFile(node.path)
-            if (content.toLowerCase().includes(query.toLowerCase())) {
-              const lines = content.split('\n')
-              const matchLine = lines.find(l => l.toLowerCase().includes(query.toLowerCase()))
-              results.push({ path: node.path, match: matchLine?.trim() || '' })
+            if (typeof content === 'string') {
+              if (content.toLowerCase().includes(query.toLowerCase())) {
+                const lines = content.split('\n')
+                const matchLine = lines.find(l => l.toLowerCase().includes(query.toLowerCase()))
+                results.push({ path: node.path, match: matchLine?.trim() || '' })
+              }
             }
           }
           for (const child of node.children || []) {

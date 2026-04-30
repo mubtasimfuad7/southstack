@@ -102,7 +102,7 @@ export class RuntimeService {
       const children: FileNode[] = []
 
       for (const entry of entries) {
-        if (entry.name === '.webcontainer' || entry.name.startsWith('.')) continue
+        if (entry.name === '.webcontainer' || entry.name.startsWith('.') || entry.name === 'node_modules') continue
 
         const entryPath = path ? `${path}/${entry.name}` : entry.name
 
@@ -186,7 +186,7 @@ export class RuntimeService {
     return await wc.fs.readFile(path, 'utf-8')
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  async writeFile(path: string, content: string | Uint8Array): Promise<void> {
     const wc = await this.boot()
     // Ensure parent directory exists
     const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''

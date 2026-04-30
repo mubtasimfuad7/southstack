@@ -121,7 +121,8 @@ export class EditorService implements IEditorService {
     let tab = this.findTabByPath(path)
     if (!tab) {
       // If file not open, read it first to get "original"
-      const original = await fileSystemService.readFile(path).catch(() => '')
+      const originalResult = await fileSystemService.readFile(path).catch(() => '')
+      const original = typeof originalResult === 'string' ? originalResult : new TextDecoder().decode(originalResult)
       tab = await this.openTab(path, original)
     }
 

@@ -11,7 +11,7 @@ import { FileExplorer } from './components/FileExplorer'
 import { EditorPane } from './components/EditorPane'
 import { TerminalPanel } from './components/TerminalPanel'
 import { AgentPanel } from './components/AgentPanel'
-import { HorizontalSplit, VerticalSplit } from './components/SplitPane'
+import { HorizontalSplit, VerticalSplit, RightSidebarSplit } from './components/SplitPane'
 import { useTerminalStore, useFSStore, useAgentStore } from '@/application/store'
 import { runtimeService } from '@/core/services/RuntimeService'
 import { fileSystemService } from '@/core/services/FileSystemService'
@@ -23,7 +23,7 @@ export function App() {
   const { agentPanelOpen, setAgentPanelOpen } = useAgentStore()
   const [showRestore, setShowRestore] = useState(false)
   const { isOpen: terminalOpen, setOpen: setTerminalOpen } = useTerminalStore()
-  const { projectRoot } = useFSStore()
+  const { projectRoot, explorerOpen, setExplorerOpen } = useFSStore()
   const [uiBuilderOpen, setUiBuilderOpen] = useState(false)
 
   // Sync projectRoot to WebContainer
@@ -101,9 +101,11 @@ export function App() {
         onToggleAgent={() => setAgentPanelOpen(!agentPanelOpen)}
         onToggleTerminal={() => setTerminalOpen(!terminalOpen)}
         onToggleUIBuilder={() => setUiBuilderOpen(!uiBuilderOpen)}
+        onToggleExplorer={() => setExplorerOpen(!explorerOpen)}
         agentPanelOpen={agentPanelOpen}
         terminalOpen={terminalOpen}
         uiBuilderOpen={uiBuilderOpen}
+        explorerOpen={explorerOpen}
       />
 
       {showRestore && (
@@ -116,25 +118,35 @@ export function App() {
 
       {/* Main area */}
       <div className="flex-1 relative overflow-hidden min-h-0">
-        <HorizontalSplit
-          left={<FileExplorer />}
-          right={
-            agentPanelOpen ? (
-              <HorizontalSplit
-                left={centerColumn}
-                right={<AgentPanel />}
-                initialLeftWidth={window.innerWidth > 1200 ? window.innerWidth - 450 : 800}
-                minLeft={400}
-                maxLeft={window.innerWidth - 300}
-              />
-            ) : (
-              centerColumn
-            )
-          }
-          initialLeftWidth={260}
-          minLeft={180}
-          maxLeft={450}
-        />
+        {(() => {
+          // Initialize AI panel width from localStorage
+          const savedRightWidth = parseInt(localStorage.getItem('agentPanelWidth') ?? '450')
+          
+          const centerWithAgent = agentPanelOpen ? (
+            <RightSidebarSplit
+              left={centerColumn}
+              right={<AgentPanel />}
+              initialRightWidth={savedRightWidth}
+              minRight={300}
+              maxRight={window.innerWidth - 300}
+              onResizeEnd={(w) => localStorage.setItem('agentPanelWidth', w.toString())}
+            />
+          ) : (
+            centerColumn
+          )
+
+          return explorerOpen ? (
+            <HorizontalSplit
+              left={<FileExplorer />}
+              right={centerWithAgent}
+              initialLeftWidth={260}
+              minLeft={180}
+              maxLeft={450}
+            />
+          ) : (
+            centerWithAgent
+          )
+        })()}
       </div>
 
       {/* UI Builder Overlay */}

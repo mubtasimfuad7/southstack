@@ -110,9 +110,11 @@ class ToolExecutor {
           if (node.type === 'file') {
             try {
               const content = await fileSystemService.readFile(node.path)
-              if (content.toLowerCase().includes(query.toLowerCase())) {
-                const line = content.split('\n').find((l) => l.toLowerCase().includes(query.toLowerCase()))
-                results.push({ path: node.path, match: line?.trim() ?? '' })
+              if (typeof content === 'string') {
+                if (content.toLowerCase().includes(query.toLowerCase())) {
+                  const line = content.split('\n').find((l) => l.toLowerCase().includes(query.toLowerCase()))
+                  results.push({ path: node.path, match: line?.trim() ?? '' })
+                }
               }
             } catch { /* skip unreadable files */ }
           }
