@@ -138,10 +138,15 @@ export class WorkerAgentRuntime {
         }
       }
 
-      // Max iterations reached
+      const reason = this.stopped ? 'Task stopped before completion' : 'Max iterations reached'
       this._stopProgressTimer()
       if (!this.isLocal) peerStateStore.setLocalState('idle')
-      return { success: false, resultSummary: 'Max iterations reached', filesWritten }
+      if (this.stopped) {
+        this._sendCancel(subtask, reason)
+      } else {
+        this._sendResult(subtask, false, reason, filesWritten)
+      }
+      return { success: false, resultSummary: reason, filesWritten }
     } catch (err) {
       this._stopProgressTimer()
       if (!this.isLocal) peerStateStore.setLocalState('idle')

@@ -5,7 +5,7 @@
 // Multi-peer cascade: tries ranked peers in order until one accepts.
 // ============================================================
 
-import { getRankedWorkers } from '@/core/peers/peerSelectors'
+import { getActivePeers, getRankedWorkers } from '@/core/peers/peerSelectors'
 import { peerNetworkManager } from '@/core/network/PeerNetworkManager'
 import { leaseManager } from './leaseManager'
 import { createMessage } from '@/core/network/protocol'
@@ -23,6 +23,7 @@ interface PendingOffer {
   remainingWorkers: string[]   // peer IDs not yet tried
   onOfferResult: OfferResultCallback
   subtask: Subtask
+  targetPeerId: string
 }
 
 export class Scheduler {
@@ -54,13 +55,18 @@ export class Scheduler {
   // ── Cascade: try peers one at a time in ranked order ──
 
   private _startOfferCascade(subtask: Subtask, onOfferResult: OfferResultCallback): void {
-    const workers = getRankedWorkers()
+    const reservedPeerIds = new Set(
+      [...this.pendingOffers.values()].map((offer) => offer.targetPeerId),
+    )
+    const workers = getRankedWorkers().filter((worker) => !reservedPeerIds.has(worker.peerId))
     console.debug(`[Scheduler] Starting cascade for "${subtask.title}": ${workers.length} eligible workers`)
 
     if (workers.length === 0) {
-      // No remote workers — poll and immediately self-assign
-      this._startRetryPolling(subtask)
-      onOfferResult(subtask.id, true, this.localPeerId)
+      if (getActivePeers().length === 0) {
+        onOfferResult(subtask.id, true, this.localPeerId)
+      } else {
+        this._startRetryPolling(subtask, onOfferResult)
+      }
       return
     }
 
@@ -73,11 +79,12 @@ export class Scheduler {
     remainingWorkers: string[],
     onOfferResult: OfferResultCallback,
   ): void {
-    // All peers have rejected — fall back to self
+    // All peers have rejected or were unavailable; keep the task queued.
     if (remainingWorkers.length === 0) {
-      console.debug(`[Scheduler] All peers rejected "${subtask.title}", self-assigning`)
+      console.debug(`[Scheduler] No peer accepted "${subtask.title}", leaving it queued`)
       this.pendingOffers.delete(subtask.id)
-      onOfferResult(subtask.id, true, this.localPeerId)
+      this._startRetryPolling(subtask, onOfferResult)
+      onOfferResult(subtask.id, false, null)
       return
     }
 
@@ -128,6 +135,7 @@ export class Scheduler {
       remainingWorkers: rest,
       onOfferResult,
       subtask,
+      targetPeerId,
     })
   }
 
@@ -174,14 +182,15 @@ export class Scheduler {
     }
   }
 
-  private _startRetryPolling(subtask: Subtask): void {
+  private _startRetryPolling(subtask: Subtask, onOfferResult: OfferResultCallback): void {
     if (this.retryTab.has(subtask.id)) return
     const interval = setInterval(() => {
       const available = getRankedWorkers()
       if (available.length > 0) {
-        console.debug(`[Scheduler] Workers now available for "${subtask.title}", stopping retry polling`)
+        console.debug(`[Scheduler] Workers now available for "${subtask.title}", retrying dispatch`)
         clearInterval(interval)
         this.retryTab.delete(subtask.id)
+        this._startOfferCascade(subtask, onOfferResult)
       }
     }, this.RETRY_INTERVAL_MS)
     this.retryTab.set(subtask.id, interval)

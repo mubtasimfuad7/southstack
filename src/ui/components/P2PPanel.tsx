@@ -7,7 +7,7 @@ import {
     Network, Activity, Zap, CheckCircle2, XCircle, Clock, Search, Wrench, Lock, X
 } from 'lucide-react'
 import type { PeerStatus, Subtask, ToolLogEntry } from '@/core/tasks/taskTypes'
-import { peerNetworkManager } from '@/core/network/PeerNetworkManager'
+import { peerStateStore } from '@/core/peers/PeerStateStore'
 
 export function P2PPanel() {
     return (
@@ -28,7 +28,7 @@ export function P2PPanel() {
 }
 
 function LocalPeerInfo() {
-    const { localPeerId, localState, acceptsRemoteTasks, setAcceptsRemoteTasks, networkConnected } = usePeerStore()
+    const { localPeerId, localPeerName, localState, acceptsRemoteTasks, setAcceptsRemoteTasks, networkConnected } = usePeerStore()
 
     const stateColors: Record<string, string> = {
         model_loading: 'text-warning bg-warning/10',
@@ -46,7 +46,7 @@ function LocalPeerInfo() {
                 </div>
             </div>
             <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-text-primary">{localPeerId || '...'}</span>
+                <span className="text-xs font-mono text-text-primary truncate" title={localPeerId}>{localPeerName || localPeerId || '...'}</span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${stateColors[localState] || 'text-text-dim bg-surface-300'}`}>
                     {localState.replace('_', ' ')}
                 </span>
@@ -56,7 +56,10 @@ function LocalPeerInfo() {
                 <input
                     type="checkbox"
                     checked={acceptsRemoteTasks}
-                    onChange={(e) => setAcceptsRemoteTasks(e.target.checked)}
+                    onChange={(e) => {
+                        setAcceptsRemoteTasks(e.target.checked)
+                        peerStateStore.setAcceptsRemoteTasks(e.target.checked)
+                    }}
                     className="accent-primary-500 rounded cursor-pointer"
                 />
                 <span className="text-[10px] font-medium text-text-secondary">Accept Remote Subtasks</span>
@@ -98,7 +101,7 @@ function PeerRow({ peer }: { peer: PeerStatus }) {
         <div className="flex items-center justify-between p-1.5 rounded bg-surface-200 border border-border">
             <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${isStale ? 'bg-error' : peer.state === 'idle' ? 'bg-success' : 'bg-accent-400'}`} />
-                <span className="text-xs font-mono text-text-secondary">{peer.peerId.split('-')[1]}</span>
+                <span className="text-xs font-mono text-text-secondary truncate" title={peer.peerId}>{peer.displayName || peer.peerId.split('-')[1]}</span>
             </div>
             <div className="flex items-center gap-2">
                 <span className="text-[9px] text-text-dim">Rel: {(peer.reliabilityScore * 100).toFixed(0)}%</span>

@@ -286,12 +286,14 @@ export class TaskOrchestrator {
       this._updateSubtask(subtaskId, { status: 'in_progress', assignedPeerId: this.localPeerId })
       this._emit()
       this._runLocally(subtaskId)
-    } else if (!accepted) {
-      // All peers rejected — fallback to self
-      console.log(`[Orchestrator] Running subtask LOCALLY (fallback: all peers rejected)`)
-      this._updateSubtask(subtaskId, { status: 'in_progress', assignedPeerId: this.localPeerId })
+    } else if (!accepted && byPeerId === null) {
+      console.log(`[Orchestrator] No remote peer is available for ${subtaskId}; keeping it queued`)
+      this._updateSubtask(subtaskId, {
+        status: 'queued',
+        assignedPeerId: undefined,
+        leaseId: undefined,
+      })
       this._emit()
-      this._runLocally(subtaskId)
     } else {
       console.log(`[Orchestrator] Subtask assigned to remote peer: ${byPeerId}`)
     }
@@ -322,12 +324,20 @@ export class TaskOrchestrator {
       const result = await runtime.execute(subtask)
       leaseManager.releaseLease(subtaskId)
       fileLocks.releaseBySubtask(subtaskId)
-      this._updateSubtask(subtaskId, {
-        status: result.success ? 'completed' : 'failed',
-        resultSummary: result.resultSummary,
-        filesWritten: result.filesWritten,
-        progress: result.success ? 100 : undefined,
-      })
+      if (result.success) {
+        this._updateSubtask(subtaskId, {
+          status: 'completed',
+          resultSummary: result.resultSummary,
+          filesWritten: result.filesWritten,
+          progress: 100,
+        })
+      } else {
+        this._updateSubtask(subtaskId, {
+          resultSummary: result.resultSummary,
+          filesWritten: result.filesWritten,
+        })
+        this._requeueOrFail(subtaskId)
+      }
     } catch (e) {
       this._requeueOrFail(subtaskId)
     }

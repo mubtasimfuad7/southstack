@@ -193,11 +193,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
 interface PeerStoreState {
   localPeerId: string
+  localPeerName: string
   localState: string
   acceptsRemoteTasks: boolean
   peers: Map<string, PeerStatus>
   networkConnected: boolean
   setLocalPeerId: (id: string) => void
+  setLocalPeerName: (name: string) => void
   setLocalState: (s: string) => void
   setAcceptsRemoteTasks: (v: boolean) => void
   setPeers: (peers: Map<string, PeerStatus>) => void
@@ -206,11 +208,13 @@ interface PeerStoreState {
 
 export const usePeerStore = create<PeerStoreState>((set) => ({
   localPeerId: '',
+  localPeerName: '',
   localState: 'model_loading',
   acceptsRemoteTasks: true,
   peers: new Map(),
   networkConnected: false,
   setLocalPeerId: (id) => set({ localPeerId: id }),
+  setLocalPeerName: (name) => set({ localPeerName: name }),
   setLocalState: (s) => set({ localState: s }),
   setAcceptsRemoteTasks: (v) => set({ acceptsRemoteTasks: v }),
   setPeers: (peers) => set({ peers }),

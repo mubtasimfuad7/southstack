@@ -51,6 +51,7 @@ class PeerNetworkManager {
   private offlineCallbacks = new Set<PeerOfflineCallback>()
   private getLocalState: (() => PeerLocalState) = () => 'idle'
   private getAcceptsRemote: (() => boolean) = () => true
+  private getDisplayName: (() => string) = () => this.localPeerId
   private getCapabilities: (() => PeerCapabilities) = () => ({
     modelName: 'unknown',
     maxConcurrentRemoteTasks: 1,
@@ -77,11 +78,13 @@ class PeerNetworkManager {
     getLocalState: () => PeerLocalState,
     getAcceptsRemote: () => boolean,
     getCapabilities: () => PeerCapabilities,
+    getDisplayName?: () => string,
   ): Promise<void> {
     this.localPeerId = localPeerId
     this.getLocalState = getLocalState
     this.getAcceptsRemote = getAcceptsRemote
     this.getCapabilities = getCapabilities
+    this.getDisplayName = getDisplayName ?? (() => this.localPeerId)
 
     // Connect to signaling server embedded in Vite dev server
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -230,7 +233,7 @@ class PeerNetworkManager {
       console.log(`[P2P] Channel open with ${remotePeerId}`)
       // Send hello
       const hello = createMessage<HelloPayload>('peer/hello', this.localPeerId, {
-        displayName: this.localPeerId,
+        displayName: this.getDisplayName(),
         state: this.getLocalState(),
         capabilities: this.getCapabilities(),
         acceptsRemoteTasks: this.getAcceptsRemote(),
@@ -325,6 +328,7 @@ class PeerNetworkManager {
       // Use Promise to ensure heartbeat isn't blocked by CPU-intensive operations
       Promise.resolve().then(() => {
         const heartbeat = createMessage<HeartbeatPayload>('peer/heartbeat', this.localPeerId, {
+          displayName: this.getDisplayName(),
           state: this.getLocalState(),
           acceptsRemoteTasks: this.getAcceptsRemote(),
         })
@@ -412,6 +416,7 @@ class PeerNetworkManager {
 
   broadcastStatus(state: PeerLocalState): void {
     const msg = createMessage('peer/status', this.localPeerId, {
+      displayName: this.getDisplayName(),
       state,
       currentTaskIds: [],
       acceptsRemoteTasks: this.getAcceptsRemote(),

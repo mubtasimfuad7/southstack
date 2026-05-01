@@ -17,19 +17,24 @@ import { usePeerStore } from '@/application/store'
   ; (async () => {
     // Generate a random peer ID for this session
     const localPeerId = `peer-${Math.random().toString(36).slice(2, 8)}`
+    const savedPeerName = localStorage.getItem('southstack.peerName')?.trim()
+    const localPeerName = savedPeerName || localPeerId
 
     // Expose store state getters for network layer
     const getState = () => peerStateStore.getLocalState()
     const getAccepts = () => peerStateStore.getAcceptsRemoteTasks()
     const getCaps = () => peerStateStore.getCapabilities()
+    const getName = () => peerStateStore.getLocalDisplayName() || localPeerId
 
     // Initialize background services
-    await peerNetworkManager.init(localPeerId, getState, getAccepts, getCaps)
+    peerStateStore.setLocalDisplayName(localPeerName)
+    await peerNetworkManager.init(localPeerId, getState, getAccepts, getCaps, getName)
     remoteToolBridge.startHosting(localPeerId)
     workerOfferHandler.init(() => localModelProvider)
 
     // Sync peer state to React Zustand store for UI
     usePeerStore.getState().setLocalPeerId(localPeerId)
+    usePeerStore.getState().setLocalPeerName(localPeerName)
 
     peerNetworkManager.onNetworkStateChange((connected) => {
       usePeerStore.getState().setNetworkConnected(connected)
@@ -37,6 +42,10 @@ import { usePeerStore } from '@/application/store'
 
     peerStateStore.onLocalStateChange((s) => {
       usePeerStore.getState().setLocalState(s)
+    })
+
+    peerStateStore.onLocalDisplayNameChange((name) => {
+      usePeerStore.getState().setLocalPeerName(name)
     })
 
     peerStateStore.onRegistryChange((peers) => {

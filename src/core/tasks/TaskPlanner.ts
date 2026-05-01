@@ -54,7 +54,9 @@ Once you have enough context, generate the final subtasks. The output MUST be ON
 }
 
 RULES:
-- Each subtask must be atomic and independently executable.
+- Each subtask must be atomic: exactly one concrete deliverable, one responsibility, and the smallest useful file or behavior change.
+- Do NOT combine separate layers or deliverables in one subtask. For example, split "HTML, CSS, and JS" into separate subtasks with dependencies.
+- Avoid compound titles using "and", commas, slashes, or lists unless the words name one indivisible concept.
 - **FORCED DECOMPOSITION**: You MUST break down any substantial feature into at least 2-4 parallelizable subtasks.
 - Declare explicit file targets in targetPaths.
 - Use dependencies[] to declare ordering (IDs of subtasks that must complete first). Wait until ALL deps are completed.
@@ -100,6 +102,14 @@ ${fileTreeContext.slice(0, 1500)}`
         }
         
         if (parsed.subtasks) {
+          const nonAtomicReason = this._findNonAtomicReason(parsed.subtasks)
+          if (nonAtomicReason) {
+            messages.push({
+              role: 'user',
+              content: `The proposed subtasks are not atomic: ${nonAtomicReason}. Regenerate the full list with each subtask limited to one concrete deliverable and explicit dependencies.`,
+            })
+            continue
+          }
           return this._buildSubtasks(parsed.subtasks, rootTaskId, initiatorPeerId)
         }
         
@@ -170,6 +180,31 @@ ${fileTreeContext.slice(0, 1500)}`
       createdAt: now,
       updatedAt: now,
     }))
+  }
+
+  private _findNonAtomicReason(rawSubtasks: any[]): string | null {
+    if (!Array.isArray(rawSubtasks)) return 'subtasks must be an array'
+
+    const compoundPattern = /\b(and|then)\b|[,/+]/
+    const multiLayerPattern = /\b(html|css|js|javascript|typescript|backend|frontend|api|database)\b[\s\S]*\b(and|,|\/|\+)\b[\s\S]*\b(html|css|js|javascript|typescript|backend|frontend|api|database)\b/i
+
+    for (const s of rawSubtasks) {
+      const title = String(s?.title ?? '')
+      const description = String(s?.description ?? '')
+      const targetPaths = Array.isArray(s?.targetPaths) ? s.targetPaths : []
+      const titleLooksCompound = compoundPattern.test(title.toLowerCase())
+      const layersCombined = multiLayerPattern.test(`${title} ${description}`)
+
+      if (layersCombined) {
+        return `"${title || 'Untitled subtask'}" combines separate technical layers`
+      }
+
+      if (titleLooksCompound && targetPaths.length > 1) {
+        return `"${title || 'Untitled subtask'}" appears to combine multiple file changes`
+      }
+    }
+
+    return null
   }
 
   private _fallbackPlan(prompt: string, rootTaskId: string, initiatorPeerId: string): Subtask[] {

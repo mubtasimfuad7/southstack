@@ -69,6 +69,7 @@ export interface HelloPayload {
 }
 
 export interface StatusPayload {
+  displayName?: string
   state: PeerLocalState
   currentTaskIds: string[]
   acceptsRemoteTasks: boolean
@@ -76,6 +77,7 @@ export interface StatusPayload {
 }
 
 export interface HeartbeatPayload {
+  displayName?: string
   state: PeerLocalState
   acceptsRemoteTasks: boolean
 }

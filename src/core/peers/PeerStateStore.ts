@@ -16,10 +16,12 @@ import type {
 import type { PeerStatus } from '@/core/tasks/taskTypes'
 
 type StateChangeCallback = (state: PeerLocalState) => void
+type DisplayNameChangeCallback = (name: string) => void
 type PeerRegistryChangeCallback = (peers: Map<string, PeerStatus>) => void
 
 class PeerStateStore {
   private localState: PeerLocalState = 'model_loading'
+  private localDisplayName = ''
   private acceptsRemoteTasks = true
   private capabilities: PeerCapabilities = {
     modelName: 'unknown',
@@ -30,6 +32,7 @@ class PeerStateStore {
 
   private remotePeers = new Map<string, PeerStatus>()
   private stateCallbacks = new Set<StateChangeCallback>()
+  private displayNameCallbacks = new Set<DisplayNameChangeCallback>()
   private registryCallbacks = new Set<PeerRegistryChangeCallback>()
 
   constructor() {
@@ -58,6 +61,7 @@ class PeerStateStore {
       if (peer) {
         this._upsertPeer({
           ...peer,
+          displayName: msg.payload.displayName ?? peer.displayName,
           state: msg.payload.state,
           acceptsRemoteTasks: msg.payload.acceptsRemoteTasks,
           lastHeartbeat: Date.now(),
@@ -66,7 +70,7 @@ class PeerStateStore {
         // New peer discovered via heartbeat before hello
         this._upsertPeer({
           peerId: msg.fromPeerId,
-          displayName: msg.fromPeerId,
+          displayName: msg.payload.displayName ?? msg.fromPeerId,
           state: msg.payload.state,
           currentTaskIds: [],
           acceptsRemoteTasks: msg.payload.acceptsRemoteTasks,
@@ -87,6 +91,7 @@ class PeerStateStore {
       if (peer) {
         this._upsertPeer({
           ...peer,
+          displayName: msg.payload.displayName ?? peer.displayName,
           state: msg.payload.state,
           currentTaskIds: msg.payload.currentTaskIds,
           acceptsRemoteTasks: msg.payload.acceptsRemoteTasks,
@@ -116,8 +121,22 @@ class PeerStateStore {
   }
 
   getLocalState(): PeerLocalState { return this.localState }
+
+  setLocalDisplayName(name: string): void {
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === this.localDisplayName) return
+    this.localDisplayName = trimmed
+    this.displayNameCallbacks.forEach((cb) => cb(trimmed))
+    peerNetworkManager.broadcastStatus(this.localState)
+  }
+
+  getLocalDisplayName(): string { return this.localDisplayName }
   
-  setAcceptsRemoteTasks(v: boolean): void { this.acceptsRemoteTasks = v }
+  setAcceptsRemoteTasks(v: boolean): void {
+    if (this.acceptsRemoteTasks === v) return
+    this.acceptsRemoteTasks = v
+    peerNetworkManager.broadcastStatus(this.localState)
+  }
   getAcceptsRemoteTasks(): boolean { return this.acceptsRemoteTasks }
 
   setCapabilities(caps: PeerCapabilities): void { this.capabilities = caps }
@@ -152,6 +171,11 @@ class PeerStateStore {
   onLocalStateChange(cb: StateChangeCallback): () => void {
     this.stateCallbacks.add(cb)
     return () => this.stateCallbacks.delete(cb)
+  }
+
+  onLocalDisplayNameChange(cb: DisplayNameChangeCallback): () => void {
+    this.displayNameCallbacks.add(cb)
+    return () => this.displayNameCallbacks.delete(cb)
   }
 
   onRegistryChange(cb: PeerRegistryChangeCallback): () => void {

@@ -2,10 +2,12 @@
 // UI LAYER: MenuBar — top bar with project open/sync actions
 // ============================================================
 
-import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, Shield, ShieldAlert, ShieldCheck, Layout } from 'lucide-react'
-import { useFSStore } from '@/application/store'
+import { useState } from 'react'
+import { FolderOpen, Save, RefreshCw, Bot, Terminal, Settings, ShieldAlert, ShieldCheck, Layout, User, Pencil, Check, X } from 'lucide-react'
+import { useFSStore, usePeerStore } from '@/application/store'
 import { fileSystemService } from '@/core/services/FileSystemService'
 import { editorService } from '@/core/services/EditorService'
+import { peerStateStore } from '@/core/peers/PeerStateStore'
 
 interface MenuBarProps {
   onToggleAgent: () => void
@@ -98,6 +100,8 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, on
           )}
         </div>
 
+        <PeerNameControl />
+
         <button
           onClick={onToggleExplorer}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${explorerOpen ? 'text-primary-300 bg-primary-400/10' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'
@@ -145,5 +149,68 @@ export function MenuBar({ onToggleAgent, onToggleTerminal, onToggleUIBuilder, on
         </button>
       </div>
     </div>
+  )
+}
+
+function PeerNameControl() {
+  const { localPeerId, localPeerName } = usePeerStore()
+  const displayName = localPeerName || localPeerId || 'Peer'
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState(displayName)
+
+  function startEditing() {
+    setDraft(displayName)
+    setIsEditing(true)
+  }
+
+  function saveName() {
+    const nextName = draft.trim().slice(0, 32)
+    if (!nextName) return
+    localStorage.setItem('southstack.peerName', nextName)
+    peerStateStore.setLocalDisplayName(nextName)
+    setIsEditing(false)
+  }
+
+  if (isEditing) {
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          saveName()
+        }}
+        className="flex items-center gap-1 px-2 py-1 rounded bg-surface-300 border border-border"
+        title={`Stable peer id: ${localPeerId || 'initializing'}`}
+      >
+        <User size={12} className="text-primary-300 flex-shrink-0" />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="w-24 bg-transparent text-[10px] text-text-primary outline-none font-mono"
+          maxLength={32}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsEditing(false)
+          }}
+        />
+        <button type="submit" className="p-0.5 rounded text-success hover:bg-white/5" title="Save peer name">
+          <Check size={12} />
+        </button>
+        <button type="button" onClick={() => setIsEditing(false)} className="p-0.5 rounded text-text-dim hover:text-text-secondary hover:bg-white/5" title="Cancel">
+          <X size={12} />
+        </button>
+      </form>
+    )
+  }
+
+  return (
+    <button
+      onClick={startEditing}
+      className="flex items-center gap-1.5 max-w-40 px-2 py-1 rounded text-[10px] text-text-secondary hover:text-text-primary hover:bg-white/5 transition-colors"
+      title={`Rename peer. Stable id: ${localPeerId || 'initializing'}`}
+    >
+      <User size={12} className="text-primary-300 flex-shrink-0" />
+      <span className="font-mono truncate">{displayName}</span>
+      <Pencil size={11} className="text-text-dim flex-shrink-0" />
+    </button>
   )
 }

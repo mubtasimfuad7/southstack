@@ -198,7 +198,7 @@ export function AgentPanel() {
     isDistributed, setDistributed, addMessage, setStatus, setAgentPanelOpen
   } = useAgentStore()
 
-  const { localPeerId, localState, acceptsRemoteTasks, setAcceptsRemoteTasks, networkConnected, peers } = usePeerStore()
+  const { peers } = usePeerStore()
   const { rootTask, subtasks, remoteSubtask } = useP2PTaskStore()
   const { entries: toolEntries } = useToolLogStore()
 
@@ -284,11 +284,13 @@ export function AgentPanel() {
         import('@/execution/llm/LocalModelProvider'),
         import('@/core/network/PeerNetworkManager')
       ])
+      const groundedPrompt = await buildDistributedPrompt(prompt)
+      addMessage('user', prompt)
 
       const rt = {
         id: `rt-${Math.random().toString(36).slice(2, 8)}`,
         ownerPeerId: peerNetworkManager.getLocalPeerId(),
-        prompt,
+        prompt: groundedPrompt,
         status: 'planning' as const,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -315,6 +317,70 @@ export function AgentPanel() {
     } else {
       await agentService.start(prompt)
     }
+  }
+
+  async function buildDistributedPrompt(prompt: string): Promise<string> {
+    const contextParts: string[] = []
+    const recentConversation = messages
+      .slice(-6)
+      .map((msg) => `${msg.role.toUpperCase()}: ${msg.content}`)
+      .join('\n')
+
+    if (recentConversation.trim()) {
+      contextParts.push(`## Recent Conversation\n${recentConversation}`)
+    }
+
+    try {
+      const { fileSystemService } = await import('@/core/services/FileSystemService')
+      const tree = await fileSystemService.getTree()
+      contextParts.push(`## Current Project Tree\n${JSON.stringify(tree, null, 2).slice(0, 2500)}`)
+
+      const paths = collectContextFilePaths(tree).slice(0, 8)
+      const fileSnippets: string[] = []
+      for (const path of paths) {
+        try {
+          const content = await fileSystemService.readFile(path)
+          if (typeof content === 'string') {
+            fileSnippets.push(`### ${path}\n\`\`\`\n${content.slice(0, 1800)}\n\`\`\``)
+          }
+        } catch {
+          // File may disappear between tree build and read; skip it.
+        }
+      }
+      if (fileSnippets.length > 0) {
+        contextParts.push(`## Current File Context\n${fileSnippets.join('\n\n')}`)
+      }
+    } catch (err) {
+      console.warn('Distributed context build failed:', err)
+    }
+
+    try {
+      const { ragService } = await import('@/core/services/RAGService')
+      if (ragService.status === 'ready') {
+        const results = await ragService.search(prompt, 4)
+        if (results.length > 0) {
+          contextParts.push(`## Retrieved Relevant Code\n${results.map((r) => `### ${r.filePath}\n\`\`\`\n${r.content}\n\`\`\``).join('\n\n')}`)
+        }
+      }
+    } catch (err) {
+      console.warn('Distributed RAG lookup failed:', err)
+    }
+
+    return `${contextParts.join('\n\n')}\n\n## Latest User Request\n${prompt}\n\nPlan against the existing project above. Preserve the current stack and files unless the user explicitly asks to migrate.`
+  }
+
+  function collectContextFilePaths(node: any): string[] {
+    if (!node) return []
+    if (node.type === 'file') {
+      const path = String(node.path ?? '')
+      return isUsefulContextPath(path) ? [path] : []
+    }
+    return (node.children ?? []).flatMap((child: any) => collectContextFilePaths(child))
+  }
+
+  function isUsefulContextPath(path: string): boolean {
+    if (!path || path.includes('node_modules/') || path.includes('/dist/')) return false
+    return /\.(html|css|js|jsx|ts|tsx|json|md)$/i.test(path)
   }
 
   function handleCancel() {
@@ -546,7 +612,7 @@ export function AgentPanel() {
                     {Array.from(peers.values()).map(peer => (
                       <div key={peer.peerId} className="flex items-center gap-1.5 px-2 py-1 bg-surface-200 border border-border rounded text-[9px] font-mono">
                         <div className={`w-1 h-1 rounded-full ${(Date.now() - peer.lastHeartbeat) > 8000 ? 'bg-error' : 'bg-success'}`} />
-                        <span className="text-text-secondary">{peer.peerId.split('-')[1]}</span>
+                        <span className="text-text-secondary truncate" title={peer.peerId}>{peer.displayName || peer.peerId.split('-')[1]}</span>
                       </div>
                     ))}
                     {peers.size === 0 && <span className="text-text-dim italic text-[9px]">Isolated Node</span>}
